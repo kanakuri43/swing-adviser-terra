@@ -25,6 +25,8 @@ public sealed class SwingAdviserDbContext : DbContext
 
     public DbSet<DailyBar> DailyBars => Set<DailyBar>();
 
+    public DbSet<DailyBarHistoryCoverage> DailyBarHistoryCoverages => Set<DailyBarHistoryCoverage>();
+
     public DbSet<CorporateAction> CorporateActions => Set<CorporateAction>();
 
     public DbSet<FundamentalDataSnapshot> FundamentalDataSnapshots => Set<FundamentalDataSnapshot>();

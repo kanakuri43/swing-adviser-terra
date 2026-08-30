@@ -12,6 +12,7 @@ internal sealed class MarginRegulationRevisionConfiguration : IEntityTypeConfigu
         builder.ToTable("margin_regulation_revisions");
         builder.HasKey(entity => entity.MarginRegulationRevisionId);
         builder.HasIndex(entity => new { entity.InstrumentId, entity.Revision }).IsUnique();
+        builder.HasIndex(entity => entity.SupersedesRevisionId).IsUnique().HasFilter("supersedes_revision_id IS NOT NULL");
 
         builder.Property(entity => entity.EffectiveAtDate)
             .HasConversion(JstDateTextConverter.Instance).HasColumnType("TEXT");

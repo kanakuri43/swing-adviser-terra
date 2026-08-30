@@ -12,6 +12,7 @@ internal sealed class CorporateActionConfiguration : IEntityTypeConfiguration<Co
         builder.ToTable("corporate_actions");
         builder.HasKey(entity => entity.CorporateActionId);
         builder.HasIndex(entity => new { entity.InstrumentId, entity.SourceEventId, entity.Revision }).IsUnique();
+        builder.HasIndex(entity => entity.SupersedesId).IsUnique().HasFilter("supersedes_id IS NOT NULL");
 
         builder.Property(entity => entity.EffectiveDate)
             .HasConversion(JstDateTextConverter.Instance).HasColumnType("TEXT");

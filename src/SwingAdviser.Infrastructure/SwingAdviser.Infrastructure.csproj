@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\SwingAdviser.Application\SwingAdviser.Application.csproj" />
     <ProjectReference Include="..\SwingAdviser.Domain\SwingAdviser.Domain.csproj" />
   </ItemGroup>
 

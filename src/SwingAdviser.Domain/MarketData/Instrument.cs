@@ -13,6 +13,8 @@ public sealed class Instrument
 
     public ICollection<DailyBar> DailyBars { get; } = new List<DailyBar>();
 
+    public ICollection<DailyBarHistoryCoverage> DailyBarHistoryCoverages { get; } = new List<DailyBarHistoryCoverage>();
+
     public ICollection<CorporateAction> CorporateActions { get; } = new List<CorporateAction>();
 
     public ICollection<FundamentalDataSnapshot> FundamentalDataSnapshots { get; } = new List<FundamentalDataSnapshot>();

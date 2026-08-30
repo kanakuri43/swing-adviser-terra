@@ -12,6 +12,7 @@ internal sealed class InstrumentMasterRevisionConfiguration : IEntityTypeConfigu
         builder.ToTable("instrument_master_revisions");
         builder.HasKey(entity => entity.InstrumentMasterRevisionId);
         builder.HasIndex(entity => new { entity.InstrumentId, entity.Revision }).IsUnique();
+        builder.HasIndex(entity => entity.SupersedesRevisionId).IsUnique().HasFilter("supersedes_revision_id IS NOT NULL");
 
         builder.Property(entity => entity.EffectiveAtDate)
             .HasConversion(JstDateTextConverter.Instance).HasColumnType("TEXT");

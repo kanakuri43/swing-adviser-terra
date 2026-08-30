@@ -22,6 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\SwingAdviser.Application\SwingAdviser.Application.csproj" />
     <ProjectReference Include="..\..\src\SwingAdviser.Infrastructure\SwingAdviser.Infrastructure.csproj" />
   </ItemGroup>
 

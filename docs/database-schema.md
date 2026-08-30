@@ -134,6 +134,13 @@ JPX 上場銘柄一覧の取り込みごとの改訂履歴。
 一意制約: `(instrument_id, trading_date, revision)`。
 どの改訂を分析へ使用したかは `analysis_input_manifest_bars` が個別に参照する。任意の取得開始日を EMA の起点にせず、履歴完全性が確認できない場合は `HistoryIncomplete` として `indicator_results` 側で扱う。
 
+### `daily_bar_history_coverages`
+取得元が上場来の有効な日足を完全に返したかを、銘柄・取得元ごとに append-only で記録する。`period1=0` の要求だけでは完全性を推測せず、不正・欠損バーを含まない応答を確認できた場合のみ `full_history_confirmed = true` とする。
+
+主な列: `instrument_id`, `source`, `earliest_returned_date`, `latest_returned_date`, `full_history_confirmed`, `observed_at_utc`, `revision`, `supersedes_id`, `status` (`Complete` / `Incomplete`)。
+
+一意制約: `(instrument_id, source, revision)`。`supersedes_id` は非NULL時に一意とし、revision chain の分岐を防ぐ。
+
 ### `corporate_actions`
 分割・併合・現金配当。日足とは別に版管理する。
 
@@ -325,7 +332,7 @@ manifest が適用した企業アクションの改訂を列挙する。
 | scan_exclusion_id | INTEGER PK | |
 | scan_run_id | INTEGER FK → scan_runs | |
 | instrument_id | INTEGER FK → instruments | |
-| reason | TEXT | `InsufficientHistory` / `HistoryIncomplete` / `InvalidData` / `NotEligible` / `PointInTimeUnverified` |
+| reason | TEXT | `InsufficientHistory` / `HistoryIncomplete` / `InvalidData` / `NotEligible` / `PointInTimeUnverified` / `ReconciliationRequired` |
 | history_available_count | INTEGER NULL | |
 | history_required_count | INTEGER NULL | |
 

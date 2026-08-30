@@ -4,7 +4,16 @@
 
 各フェーズの実装セッションでは、Codex に該当フェーズの docs（該当箇所）と本ファイルの該当項目を渡し、完了後に `dotnet build`/`dotnet test` が green であることと Non-negotiable rules（`AGENTS.md`）との矛盾がないことを確認してからチェックを付ける。
 
-「(UIモック確認)」と記載した項目は、実データ結線前に静的なダミーデータで画面を組み、レイアウト・情報量・誤操作防止の観点でユーザーと確認してから次へ進む。
+「(UIモック確認)」と記載した項目は、実データ結線前に静的なダミーデータで画面を組み、レイアウト・情報量・誤操作防止の観点でユーザーと確認してから次へ進む。UIモック確認は2段階に分けて実施する。
+
+- 第1段階（UIモック確認①）: 候補一覧・保有ポジション・約定履歴はいずれも `product-spec.md` の表示要件がほぼ確定しているため、Phase 3 完了時点でメイン画面としてまとめて確認する（Phase 4）。
+- 第2段階（UIモック確認②③）: 更新進捗・AIチェック状態はそれぞれ Phase 7・Phase 9 のドメイン実装が固まってから、独立フェーズ（Phase 8・Phase 10）として個別に確認する。
+
+Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\Users\su\source\repos\swing-adviser-codex\src\SwingAdviser.Presentation`（`MainWindow.xaml` / `MainWindowViewModel.cs` 等）を使用する。参考にするのはウインドウサイズ・コントロール配置・タブキャプションのみであり、表示フィールドは本プロジェクト（`SwingAdviser.Domain`/`docs/database-schema.md`）のモデルに合わせて設計し直す。タブ名は次のとおり統一する。
+
+- エントリー候補一覧 → 「候補」
+- 保有建玉一覧 → 「保有」
+- 過去の売買履歴 → 「履歴」
 
 ## Phase 0 — 基盤 (完了)
 - [x] ソリューション構成作成（Domain/Application/Infrastructure/Presentation + Infrastructure.Tests）
@@ -30,26 +39,33 @@
 
 ## Phase 2 — データ取得基盤（Infrastructure）
 参照: [`data-sources.md`](./docs/data-sources.md)
-- [ ] JPX銘柄マスタ（上場銘柄一覧）取得・`instrument_master_revisions` 更新
-- [ ] JPX信用取引銘柄・貸株銘柄一覧取得・`margin_regulation_revisions` 更新
-- [ ] Yahoo Finance chart API による日足取得・`daily_bars` 更新（未調整値を正本として保存）
-- [ ] 企業アクション取得・`corporate_actions` の版管理・`effective_date`/`available_at` 判定
-- [ ] ファンダメンタルデータ（PER/PBR等）取得・`fundamental_data_snapshots` 更新
-- [ ] 外部取得失敗の `external_fetch_results` 記録（1銘柄失敗で全体停止しないこと）
-- [ ] 上記 Repository/取得処理のユニット・統合テスト（欠損・訂正・rate limit・timeout・network error）
+- [x] JPX銘柄マスタ（上場銘柄一覧）取得・`instrument_master_revisions` 更新
+- [x] JPX信用取引銘柄・貸株銘柄一覧取得・`margin_regulation_revisions` 更新
+- [x] Yahoo Finance chart API による日足取得・`daily_bars` 更新（未調整値を正本として保存）
+- [x] 企業アクション取得・`corporate_actions` の版管理・`effective_date`/`available_at` 判定
+- [x] ファンダメンタルデータ（PER/PBR等）取得・`fundamental_data_snapshots` 更新
+- [x] 外部取得失敗の `external_fetch_results` 記録（1銘柄失敗で全体停止しないこと）
+- [x] 上記 Repository/取得処理のユニット・統合テスト（欠損・訂正・rate limit・timeout・network error）
 
 ## Phase 3 — テクニカル分析エンジン（Domain/Application）
 参照: [`technical-analysis.md`](./docs/technical-analysis.md)
-- [ ] point-in-time 調整済み OHLCV 生成（分割・配当調整、`analysis_input_manifests` 連携）
-- [ ] EMA(20/50/200)・MACD(12/26/9)・出来高倍率・ATR14 の指標計算実装（各アルゴリズム識別子どおり）
-- [ ] `InsufficientHistory`/`HistoryIncomplete`/`InvalidData`/`PointInTimeUnverified` の fail-closed 処理
-- [ ] `candidate-scoring-engine-v1`（Long/Short非対称の必須条件・スコア計算）実装
-- [ ] 全銘柄スキャン Application サービス（`scan_runs`/`indicator_results`/`scan_exclusions`/`candidate_results` 生成、進捗・失敗件数の可視化）
-- [ ] 指標・シグナル境界値、Long/Short非対称ロジックのテスト（期待値を本体と同アルゴリズムで再計算するテストは避ける）
+- [x] point-in-time 調整済み OHLCV 生成（分割・配当調整、`analysis_input_manifests` 連携）
+- [x] EMA(20/50/200)・MACD(12/26/9)・出来高倍率・ATR14 の指標計算実装（各アルゴリズム識別子どおり）
+- [x] `InsufficientHistory`/`HistoryIncomplete`/`InvalidData`/`PointInTimeUnverified` の fail-closed 処理
+- [x] `candidate-scoring-engine-v1`（Long/Short非対称の必須条件・スコア計算）実装
+- [x] 全銘柄スキャン Application サービス（`scan_runs`/`indicator_results`/`scan_exclusions`/`candidate_results` 生成、進捗・失敗件数の可視化）
+- [x] 指標・シグナル境界値、Long/Short非対称ロジックのテスト（期待値を本体と同アルゴリズムで再計算するテストは避ける）
 
-**(UIモック確認①)** 候補一覧画面（[`product-spec.md`](./docs/product-spec.md) Candidate list の表示要件）をダミーデータで組み、列構成・スコア表現・除外理由表示をユーザーと確認する。
+## Phase 4 — UIモック確認①（メイン画面: 候補・保有・履歴）
+参照: [`product-spec.md`](./docs/product-spec.md) Candidate list / Positions / Trade records、参考デザイン `C:\Users\su\source\repos\swing-adviser-codex\src\SwingAdviser.Presentation`（ウインドウサイズ・コントロール配置・キャプションのみ参照。表示フィールドは本プロジェクトの `SwingAdviser.Domain` モデルに合わせる）
 
-## Phase 4 — リスク管理エンジン
+- [ ] MahApps.Metro `MetroWindow` ベースのメイン画面骨格（`TabControl` に「候補」「保有」「履歴」の3タブ、ウインドウサイズ・最小サイズは参考デザインに合わせる）をダミーデータで実装
+- [ ] 「候補」タブ: `CandidateResult`/`IndicatorResult` 系フィールドで列構成（銘柄コード/銘柄名、Long/Short、Entry種別、判定基準バー日、適用戦略、スコア/信頼度、主な判定理由、AI状態、除外理由表示を含む）
+- [ ] 「保有」タブ: `Position`/`MarginLot`/`RiskPlan`/`PositionHoldingEvaluation`/`MarginCostLedgerEntry` 系フィールドで列構成（適用戦略、決済判定、判定日/判定理由、損切候補、利確候補、HOLD理由、返済期限・残営業日、確定/見積コスト、価格損益・ネット参考損益、要照合状態を含む）
+- [ ] 「履歴」タブ: `TradeExecution`（訂正revision含む）フィールドで列構成（登録元、約定日時/価格/株数、訂正操作の表現を含む）
+- [ ] 上記3タブをまとめてユーザーとレイアウト・情報量・誤操作防止の観点で確認する
+
+## Phase 5 — リスク管理エンジン
 参照: [`risk-management.md`](./docs/risk-management.md)
 - [ ] `initial-risk-plan-factory-v1`（risk basis・初期stop/target算出）実装
 - [ ] `holding-risk-evaluation-v1`（lot単位判定→position集約、`Hold`のfail-closed運用）実装
@@ -58,25 +74,25 @@
 - [ ] 返済期限集約・警告閾値（30/10/5/1営業日、設定化）実装
 - [ ] 損切/利確/HOLD境界値、複数lot集約、期限・コスト欠損状態のテスト
 
-**(UIモック確認②)** 保有ポジション一覧・詳細画面（product-spec.md Positions の表示要件）をダミーデータで組み、損切/利確候補・HOLD理由・期限警告・コスト表示の見え方を確認する。
-
-## Phase 5 — ポジション・約定管理（手動登録フロー）
+## Phase 6 — ポジション・約定管理（手動登録フロー）
 参照: [`product-spec.md`](./docs/product-spec.md) Trade records、`AGENTS.md` Non-negotiable rules
 - [ ] 約定登録画面（候補一覧からの銘柄/方向入力補助→価格/日時/株数は利用者入力→保存前確認）実装
 - [ ] 部分決済のlot allocation明示登録（FIFO等の自動推測をしない）実装
 - [ ] 企業アクション換算・要照合状態の反映実装
 
-**(UIモック確認③)** 約定登録フローのモックを確認する。特に「現在値/終値の自動採用がないこと」「ボタン一回で売買成立まで進まないこと」を重点確認する。
-
-## Phase 6 — 日次更新オーケストレーション
+## Phase 7 — 日次更新オーケストレーション
 参照: [`product-spec.md`](./docs/product-spec.md) Daily update workflow
 - [ ] 11ステップの日次更新フロー（更新→point-in-time生成→テクニカル分析→Long/Short候補→保有再評価→保存→AIキュー投入）実装
 - [ ] `daily_update_runs`/進捗・成功/失敗件数の可視化実装
 - [ ] 1銘柄失敗時の継続動作、冪等性の確認
 
-**(UIモック確認④)** 更新進捗表示（「分析更新完了・AIチェック継続中」の分離表現を含む）をモックで確認する。
+## Phase 8 — UIモック確認②（更新進捗表示）
+参照: [`product-spec.md`](./docs/product-spec.md) Daily update workflow / UI/UX
+- [ ] 更新進捗表示（進捗バー・成功/失敗件数）をダミーデータで実装
+- [ ] 「分析更新完了・AIチェック継続中」の分離表現を実装
+- [ ] 上記をユーザーとレイアウト・情報量の観点で確認する
 
-## Phase 7 — AIチェック統合
+## Phase 9 — AIチェック統合
 参照: [`ai-analysis.md`](./docs/ai-analysis.md)
 - [ ] Codex CLI 実行基盤（timeout・shell injection対策・秘密情報非露出）実装
 - [ ] 永続キュー（`Queued→Running→終端状態`、最大2並列、キャンセル・再試行）実装
@@ -84,21 +100,25 @@
 - [ ] AIチェック状態・結果のUI実装（Verdictと候補方向の整合/逆表現、`InsufficientInformation`と`Neutral`の非混同）
 - [ ] AI失敗時フォールバック（テクニカル結果を無効化しない）のテスト
 
-**(UIモック確認⑤)** AIチェック状態・結果表示画面をモックで確認する。
+## Phase 10 — UIモック確認③（AIチェック状態・結果表示）
+参照: [`ai-analysis.md`](./docs/ai-analysis.md)、[`product-spec.md`](./docs/product-spec.md) UI/UX
+- [ ] AIチェック状態・結果表示画面（未実行/待機中/実行中/成功/失敗/timeout/情報不足/キャンセル/旧結果の区別、単件・複数選択操作を含む）をダミーデータで実装
+- [ ] AI Verdictと候補方向の整合/逆表現、`InsufficientInformation`と`Neutral`の非混同表現を実装
+- [ ] 上記をユーザーとレイアウト・誤操作防止の観点で確認する
 
-## Phase 8 — 統合・品質保証
-- [ ] Phase2〜7の結線後、代表的なE2Eシナリオ（候補抽出→AIチェック→建玉登録→保有再評価→決済登録）を手動で通す
+## Phase 11 — 統合・品質保証
+- [ ] Phase2〜9の結線後、代表的なE2Eシナリオ（候補抽出→AIチェック→建玉登録→保有再評価→決済登録）を手動で通す
 - [ ] `dotnet build`/`dotnet test` が全体で green であることを確認
 - [ ] ログ・エラー分類（HTTP error/rate limit/timeout/invalid data/CLI failure/SQLite lock/cancellation）の網羅性レビュー
 - [ ] Non-negotiable rules（自動売買化していないか等）の最終レビュー
 
-## Phase 9 — 実運用移行準備
+## Phase 12 — 実運用移行準備
 - [ ] 実運用DB配置（EXEと同ディレクトリの`swing-adviser.db`固定、書き込み不可時の明示エラー）の実機確認
 - [ ] 設定ファイル（APIキー参照・Codex CLIパス等）の秘密情報非コミット確認
 - [ ] 配布物（自己完結exe等）の確定・インストール手順整備
 - [ ] バックアップ/リストア手順（SQLiteファイルコピー等）の確立
 - [ ] 小規模・期間限定の試験運用
 
-## Phase 10 — 実運用開始後
+## Phase 13 — 実運用開始後
 - [ ] JPXファイル形式変更・Yahoo非公式API変更等への追従方針の運用ドキュメント化
 - [ ] 障害対応・問い合わせ対応手順の整備

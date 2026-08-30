@@ -12,6 +12,7 @@ internal sealed class DailyBarConfiguration : IEntityTypeConfiguration<DailyBar>
         builder.ToTable("daily_bars");
         builder.HasKey(entity => entity.DailyBarId);
         builder.HasIndex(entity => new { entity.InstrumentId, entity.TradingDate, entity.Revision }).IsUnique();
+        builder.HasIndex(entity => entity.SupersedesId).IsUnique().HasFilter("supersedes_id IS NOT NULL");
 
         builder.Property(entity => entity.TradingDate)
             .HasConversion(JstDateTextConverter.Instance).HasColumnType("TEXT");

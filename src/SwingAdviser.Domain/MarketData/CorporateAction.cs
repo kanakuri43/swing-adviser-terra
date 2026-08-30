@@ -7,7 +7,10 @@ public sealed class CorporateAction
     public int InstrumentId { get; set; }
     public string ActionType { get; set; } = string.Empty;
     public DateOnly EffectiveDate { get; set; }
-    public DateTime AnnouncedAtUtc { get; set; }
+    /// <summary>
+    /// Provider-announced time when known. Yahoo chart events do not provide it, so unknown must remain null.
+    /// </summary>
+    public DateTime? AnnouncedAtUtc { get; set; }
     public DateTime AvailableAtUtc { get; set; }
     public DateTime FirstObservedAtUtc { get; set; }
     public int? SplitRatioNumerator { get; set; }

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SwingAdviser.Infrastructure.Persistence;
 
@@ -10,9 +11,11 @@ using SwingAdviser.Infrastructure.Persistence;
 namespace SwingAdviser.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(SwingAdviserDbContext))]
-    partial class SwingAdviserDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260830230238_AddPhase2DataIntegrityConstraints")]
+    partial class AddPhase2DataIntegrityConstraints
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.15");
@@ -659,18 +662,18 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
                     b.HasKey("IndicatorResultId")
                         .HasName("pk_indicator_results");
 
-                    b.HasIndex("InstrumentId")
-                        .HasDatabaseName("ix_indicator_results_instrument_id");
-
                     b.HasIndex("ManifestId")
                         .HasDatabaseName("ix_indicator_results_manifest_id");
+
+                    b.HasIndex("ScanRunId")
+                        .HasDatabaseName("ix_indicator_results_scan_run_id");
 
                     b.HasIndex("StrategyParameterSnapshotId")
                         .HasDatabaseName("ix_indicator_results_strategy_parameter_snapshot_id");
 
-                    b.HasIndex("ScanRunId", "ManifestId", "StrategyParameterSnapshotId")
+                    b.HasIndex("InstrumentId", "EvaluationBarDate", "AnalyzedAtUtc", "StrategyParameterSnapshotId")
                         .IsUnique()
-                        .HasDatabaseName("ix_indicator_results_scan_run_id_manifest_id_strategy_parameter_snapshot_id");
+                        .HasDatabaseName("ix_indicator_results_instrument_id_evaluation_bar_date_analyzed_at_utc_strategy_parameter_snapshot_id");
 
                     b.ToTable("indicator_results", (string)null);
                 });
@@ -998,69 +1001,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_daily_bars_instrument_id_trading_date_revision");
 
                     b.ToTable("daily_bars", (string)null);
-                });
-
-            modelBuilder.Entity("SwingAdviser.Domain.MarketData.DailyBarHistoryCoverage", b =>
-                {
-                    b.Property<int>("DailyBarHistoryCoverageId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("daily_bar_history_coverage_id");
-
-                    b.Property<string>("EarliestReturnedDate")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("earliest_returned_date");
-
-                    b.Property<bool>("FullHistoryConfirmed")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("full_history_confirmed");
-
-                    b.Property<int>("InstrumentId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("instrument_id");
-
-                    b.Property<string>("LatestReturnedDate")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("latest_returned_date");
-
-                    b.Property<string>("ObservedAtUtc")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("observed_at_utc");
-
-                    b.Property<int>("Revision")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("revision");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("status");
-
-                    b.Property<int?>("SupersedesId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("supersedes_id");
-
-                    b.HasKey("DailyBarHistoryCoverageId")
-                        .HasName("pk_daily_bar_history_coverages");
-
-                    b.HasIndex("SupersedesId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_daily_bar_history_coverages_supersedes_id")
-                        .HasFilter("supersedes_id IS NOT NULL");
-
-                    b.HasIndex("InstrumentId", "Source", "Revision")
-                        .IsUnique()
-                        .HasDatabaseName("ix_daily_bar_history_coverages_instrument_id_source_revision");
-
-                    b.ToTable("daily_bar_history_coverages", (string)null);
                 });
 
             modelBuilder.Entity("SwingAdviser.Domain.MarketData.FundamentalDataSnapshot", b =>
@@ -2446,26 +2386,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
                     b.Navigation("Supersedes");
                 });
 
-            modelBuilder.Entity("SwingAdviser.Domain.MarketData.DailyBarHistoryCoverage", b =>
-                {
-                    b.HasOne("SwingAdviser.Domain.MarketData.Instrument", "Instrument")
-                        .WithMany("DailyBarHistoryCoverages")
-                        .HasForeignKey("InstrumentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_daily_bar_history_coverages_instruments_instrument_id");
-
-                    b.HasOne("SwingAdviser.Domain.MarketData.DailyBarHistoryCoverage", "Supersedes")
-                        .WithMany()
-                        .HasForeignKey("SupersedesId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_daily_bar_history_coverages_daily_bar_history_coverages_supersedes_id");
-
-                    b.Navigation("Instrument");
-
-                    b.Navigation("Supersedes");
-                });
-
             modelBuilder.Entity("SwingAdviser.Domain.MarketData.FundamentalDataSnapshot", b =>
                 {
                     b.HasOne("SwingAdviser.Domain.MarketData.Instrument", "Instrument")
@@ -2854,8 +2774,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("SwingAdviser.Domain.MarketData.Instrument", b =>
                 {
                     b.Navigation("CorporateActions");
-
-                    b.Navigation("DailyBarHistoryCoverages");
 
                     b.Navigation("DailyBars");
 

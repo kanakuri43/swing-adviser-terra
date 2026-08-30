@@ -11,13 +11,7 @@ internal sealed class IndicatorResultConfiguration : IEntityTypeConfiguration<In
     {
         builder.ToTable("indicator_results");
         builder.HasKey(entity => entity.IndicatorResultId);
-        builder.HasIndex(entity => new
-        {
-            entity.InstrumentId,
-            entity.EvaluationBarDate,
-            entity.AnalyzedAtUtc,
-            entity.StrategyParameterSnapshotId,
-        }).IsUnique();
+        builder.HasIndex(entity => new { entity.ScanRunId, entity.ManifestId, entity.StrategyParameterSnapshotId }).IsUnique();
 
         builder.Property(entity => entity.EvaluationBarDate).HasConversion(JstDateTextConverter.Instance).HasColumnType("TEXT");
         builder.Property(entity => entity.AnalyzedAtUtc).HasConversion(UtcDateTimeTextConverter.Instance).HasColumnType("TEXT");
