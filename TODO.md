@@ -18,15 +18,15 @@
 ## Phase 1 — DBスキーマ実装
 各Stepとも Domain エンティティ → EF Core `IEntityTypeConfiguration` → 追加マイグレーション → Repository/migration テストの順で実装し、既存マイグレーションは書き換えない（節番号は [`docs/database-schema.md`](./docs/database-schema.md) の章立てに対応）。
 
-- [ ] Step 1（§1–2）: 銘柄マスタ・信用規制・価格データ・企業アクション・ファンダメンタル（`instruments`, `instrument_master_revisions`, `margin_regulation_revisions`, `daily_bars`, `corporate_actions`, `fundamental_data_snapshots`）
-- [ ] Step 2（§3–4）: 分析入力manifest・戦略パラメータ・日次更新run/取得ログ・スキャン/指標/候補結果（`analysis_input_manifests`系, `strategy_parameter_snapshots`, `daily_update_runs`, `external_fetch_results`, `scan_runs`, `indicator_results`, `scan_exclusions`, `candidate_results`）
-- [ ] Step 3（§5）: ポジション・約定・MarginLot（`positions`, `trade_executions`, `margin_lots`, `margin_lot_contract_term_revisions`, `trade_execution_lot_allocations`, `position_corporate_action_adjustments`）
-- [ ] Step 4（§6）: risk basis・risk plan（`risk_basis_snapshots`, `risk_plans`）
-- [ ] Step 5（§7）: 保有再評価（`lot_holding_evaluations`, `position_holding_evaluations`）
-- [ ] Step 6（§8）: 信用コスト台帳（`margin_cost_ledger_entries`）
-- [ ] Step 7（§9）: AIチェック（`ai_check_attempts`, `ai_check_results`, `ai_check_evidence_items`, `ai_check_sources`, `ai_check_evidence_citations`）
-- [ ] Step 8（§10）: 実データアクセスパターンに合わせたインデックス追加
-- [ ] 各Step完了ごとに追加マイグレーションが `dotnet ef migrations add` で意図通り生成されることを確認する
+- [x] Step 1（§1–2）: 銘柄マスタ・信用規制・価格データ・企業アクション・ファンダメンタル（`instruments`, `instrument_master_revisions`, `margin_regulation_revisions`, `daily_bars`, `corporate_actions`, `fundamental_data_snapshots`）
+- [x] Step 2（§3–4）: 分析入力manifest・戦略パラメータ・日次更新run/取得ログ・スキャン/指標/候補結果（`analysis_input_manifests`系, `strategy_parameter_snapshots`, `daily_update_runs`, `external_fetch_results`, `scan_runs`, `indicator_results`, `scan_exclusions`, `candidate_results`）
+- [x] Step 3（§5）: ポジション・約定・MarginLot（`positions`, `trade_executions`, `margin_lots`, `margin_lot_contract_term_revisions`, `trade_execution_lot_allocations`, `position_corporate_action_adjustments`）
+- [x] Step 4（§6）: risk basis・risk plan（`risk_basis_snapshots`, `risk_plans`）
+- [x] Step 5（§7）: 保有再評価（`lot_holding_evaluations`, `position_holding_evaluations`）
+- [x] Step 6（§8）: 信用コスト台帳（`margin_cost_ledger_entries`）
+- [x] Step 7（§9）: AIチェック（`ai_check_attempts`, `ai_check_results`, `ai_check_evidence_items`, `ai_check_sources`, `ai_check_evidence_citations`）
+- [x] Step 8（§10）: 実データアクセスパターンに合わせたインデックス追加
+- [x] 各Step完了ごとに追加マイグレーションが `dotnet ef migrations add` で意図通り生成されることを確認する
 
 ## Phase 2 — データ取得基盤（Infrastructure）
 参照: [`data-sources.md`](./docs/data-sources.md)

@@ -7,7 +7,7 @@ namespace SwingAdviser.Infrastructure.Tests;
 public class MigrationSmokeTests
 {
     [Fact]
-    public void Migrate_AppliesInitialCreate_WithoutError()
+    public void Migrate_AppliesAllMigrations_WithoutError()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
         connection.Open();

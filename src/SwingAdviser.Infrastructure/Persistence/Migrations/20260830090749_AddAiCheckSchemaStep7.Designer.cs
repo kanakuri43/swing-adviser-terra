@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SwingAdviser.Infrastructure.Persistence;
 
@@ -10,9 +11,11 @@ using SwingAdviser.Infrastructure.Persistence;
 namespace SwingAdviser.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(SwingAdviserDbContext))]
-    partial class SwingAdviserDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260830090749_AddAiCheckSchemaStep7")]
+    partial class AddAiCheckSchemaStep7
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.15");
@@ -134,9 +137,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CandidateResultId")
                         .HasDatabaseName("ix_ai_check_attempts_candidate_result_id");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("ix_ai_check_attempts_status");
 
                     b.HasIndex("TechnicalInputManifestId")
                         .HasDatabaseName("ix_ai_check_attempts_technical_input_manifest_id");
@@ -466,10 +466,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
                     b.HasIndex("IndicatorResultId", "Direction")
                         .IsUnique()
                         .HasDatabaseName("ix_candidate_results_indicator_result_id_direction");
-
-                    b.HasIndex("Direction", "Score", "InstrumentId")
-                        .IsDescending(false, true, false)
-                        .HasDatabaseName("ix_candidate_results_direction_score_instrument_id");
 
                     b.ToTable("candidate_results", (string)null);
                 });
@@ -1439,10 +1435,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
                     b.HasKey("ContractTermRevisionId")
                         .HasName("pk_margin_lot_contract_term_revisions");
 
-                    b.HasIndex("FinalRepaymentDate")
-                        .HasDatabaseName("ix_margin_lot_contract_term_revisions_final_repayment_date")
-                        .HasFilter("status = 'Active'");
-
                     b.HasIndex("SupersedesRevisionId")
                         .HasDatabaseName("ix_margin_lot_contract_term_revisions_supersedes_revision_id");
 
@@ -1509,9 +1501,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("SourceCandidateResultId")
                         .HasDatabaseName("ix_positions_source_candidate_result_id");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("ix_positions_status");
 
                     b.ToTable("positions", (string)null);
                 });

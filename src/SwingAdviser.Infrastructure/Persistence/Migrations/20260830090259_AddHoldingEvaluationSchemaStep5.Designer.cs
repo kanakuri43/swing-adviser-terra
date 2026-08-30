@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SwingAdviser.Infrastructure.Persistence;
 
@@ -10,293 +11,14 @@ using SwingAdviser.Infrastructure.Persistence;
 namespace SwingAdviser.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(SwingAdviserDbContext))]
-    partial class SwingAdviserDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260830090259_AddHoldingEvaluationSchemaStep5")]
+    partial class AddHoldingEvaluationSchemaStep5
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.15");
-
-            modelBuilder.Entity("SwingAdviser.Domain.Analysis.AiCheckAttempt", b =>
-                {
-                    b.Property<int>("AttemptId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("attempt_id");
-
-                    b.Property<int>("CandidateResultId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("candidate_result_id");
-
-                    b.Property<string>("CliExecutablePath")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("cli_executable_path");
-
-                    b.Property<string>("CliVersion")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("cli_version");
-
-                    b.Property<string>("CompletedAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("completed_at_utc");
-
-                    b.Property<string>("ErrorKind")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("error_kind");
-
-                    b.Property<string>("EvaluationBarDate")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("evaluation_bar_date");
-
-                    b.Property<int?>("ExitCode")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("exit_code");
-
-                    b.Property<bool>("IsStale")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("is_stale");
-
-                    b.Property<string>("Model")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("model");
-
-                    b.Property<string>("NormalizedInputSnapshotHash")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("normalized_input_snapshot_hash");
-
-                    b.Property<string>("PromptTemplateHash")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("prompt_template_hash");
-
-                    b.Property<string>("PromptTemplateVersion")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("prompt_template_version");
-
-                    b.Property<string>("RawResponseHash")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("raw_response_hash");
-
-                    b.Property<string>("RequestedAtUtc")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("requested_at_utc");
-
-                    b.Property<string>("RequestedBy")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("requested_by");
-
-                    b.Property<string>("SanitizedArguments")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("sanitized_arguments");
-
-                    b.Property<string>("SanitizedStderr")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("sanitized_stderr");
-
-                    b.Property<string>("StartedAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("started_at_utc");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("status");
-
-                    b.Property<string>("StrategySnapshotHash")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("strategy_snapshot_hash");
-
-                    b.Property<string>("StructuredResultSha256")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("structured_result_sha256");
-
-                    b.Property<int>("TechnicalInputManifestId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("technical_input_manifest_id");
-
-                    b.Property<int>("TimeoutSeconds")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("timeout_seconds");
-
-                    b.Property<int?>("TriggeringDailyUpdateRunId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("triggering_daily_update_run_id");
-
-                    b.HasKey("AttemptId")
-                        .HasName("pk_ai_check_attempts");
-
-                    b.HasIndex("CandidateResultId")
-                        .HasDatabaseName("ix_ai_check_attempts_candidate_result_id");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("ix_ai_check_attempts_status");
-
-                    b.HasIndex("TechnicalInputManifestId")
-                        .HasDatabaseName("ix_ai_check_attempts_technical_input_manifest_id");
-
-                    b.HasIndex("TriggeringDailyUpdateRunId")
-                        .HasDatabaseName("ix_ai_check_attempts_triggering_daily_update_run_id");
-
-                    b.ToTable("ai_check_attempts", (string)null);
-                });
-
-            modelBuilder.Entity("SwingAdviser.Domain.Analysis.AiCheckEvidenceCitation", b =>
-                {
-                    b.Property<int>("EvidenceItemId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("evidence_item_id");
-
-                    b.Property<int>("SourceOrdinal")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("source_ordinal");
-
-                    b.HasKey("EvidenceItemId", "SourceOrdinal")
-                        .HasName("pk_ai_check_evidence_citations");
-
-                    b.ToTable("ai_check_evidence_citations", (string)null);
-                });
-
-            modelBuilder.Entity("SwingAdviser.Domain.Analysis.AiCheckEvidenceItem", b =>
-                {
-                    b.Property<int>("EvidenceItemId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("evidence_item_id");
-
-                    b.Property<string>("EvidenceKind")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("evidence_kind");
-
-                    b.Property<int>("Ordinal")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("ordinal");
-
-                    b.Property<int>("ResultId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("result_id");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("text");
-
-                    b.HasKey("EvidenceItemId")
-                        .HasName("pk_ai_check_evidence_items");
-
-                    b.HasIndex("ResultId", "EvidenceKind", "Ordinal")
-                        .IsUnique()
-                        .HasDatabaseName("ix_ai_check_evidence_items_result_id_evidence_kind_ordinal");
-
-                    b.ToTable("ai_check_evidence_items", (string)null);
-                });
-
-            modelBuilder.Entity("SwingAdviser.Domain.Analysis.AiCheckResult", b =>
-                {
-                    b.Property<int>("ResultId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("result_id");
-
-                    b.Property<int>("AttemptId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("attempt_id");
-
-                    b.Property<string>("CheckedAtUtc")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("checked_at_utc");
-
-                    b.Property<string>("Confidence")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("confidence");
-
-                    b.Property<string>("FundamentalView")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("fundamental_view");
-
-                    b.Property<string>("Outcome")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("outcome");
-
-                    b.Property<string>("SchemaVersion")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("schema_version");
-
-                    b.Property<string>("Summary")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("summary");
-
-                    b.Property<string>("TechnicalView")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("technical_view");
-
-                    b.Property<string>("Verdict")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("verdict");
-
-                    b.HasKey("ResultId")
-                        .HasName("pk_ai_check_results");
-
-                    b.HasIndex("AttemptId")
-                        .IsUnique()
-                        .HasDatabaseName("ix_ai_check_results_attempt_id");
-
-                    b.ToTable("ai_check_results", (string)null);
-                });
-
-            modelBuilder.Entity("SwingAdviser.Domain.Analysis.AiCheckSource", b =>
-                {
-                    b.Property<int>("SourceId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("source_id");
-
-                    b.Property<int>("Ordinal")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("ordinal");
-
-                    b.Property<string>("PublishedAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("published_at_utc");
-
-                    b.Property<int>("ResultId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("result_id");
-
-                    b.Property<string>("RetrievedAtUtc")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("retrieved_at_utc");
-
-                    b.Property<string>("Title")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("title");
-
-                    b.Property<string>("Url")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("url");
-
-                    b.HasKey("SourceId")
-                        .HasName("pk_ai_check_sources");
-
-                    b.HasIndex("ResultId", "Ordinal")
-                        .IsUnique()
-                        .HasDatabaseName("ix_ai_check_sources_result_id_ordinal");
-
-                    b.ToTable("ai_check_sources", (string)null);
-                });
 
             modelBuilder.Entity("SwingAdviser.Domain.Analysis.AnalysisInputManifest", b =>
                 {
@@ -466,10 +188,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
                     b.HasIndex("IndicatorResultId", "Direction")
                         .IsUnique()
                         .HasDatabaseName("ix_candidate_results_indicator_result_id_direction");
-
-                    b.HasIndex("Direction", "Score", "InstrumentId")
-                        .IsDescending(false, true, false)
-                        .HasDatabaseName("ix_candidate_results_direction_score_instrument_id");
 
                     b.ToTable("candidate_results", (string)null);
                 });
@@ -1233,105 +951,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
                     b.ToTable("margin_regulation_revisions", (string)null);
                 });
 
-            modelBuilder.Entity("SwingAdviser.Domain.Positions.MarginCostLedgerEntry", b =>
-                {
-                    b.Property<int>("LedgerEntryId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("ledger_entry_id");
-
-                    b.Property<string>("Amount")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("amount");
-
-                    b.Property<string>("AvailableAtUtc")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("available_at_utc");
-
-                    b.Property<string>("CostType")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("cost_type");
-
-                    b.Property<string>("Currency")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("currency");
-
-                    b.Property<string>("DayCountConvention")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("day_count_convention");
-
-                    b.Property<string>("Direction")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("direction");
-
-                    b.Property<int>("MarginLotId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("margin_lot_id");
-
-                    b.Property<string>("ObservedAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("observed_at_utc");
-
-                    b.Property<string>("PeriodEnd")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("period_end");
-
-                    b.Property<string>("PeriodStart")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("period_start");
-
-                    b.Property<string>("Quantity")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("quantity");
-
-                    b.Property<string>("Rate")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("rate");
-
-                    b.Property<string>("RateUnit")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("rate_unit");
-
-                    b.Property<string>("RecordedAtUtc")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("recorded_at_utc");
-
-                    b.Property<int>("Revision")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("revision");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("status");
-
-                    b.Property<int?>("SupersedesId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("supersedes_id");
-
-                    b.HasKey("LedgerEntryId")
-                        .HasName("pk_margin_cost_ledger_entries");
-
-                    b.HasIndex("SupersedesId")
-                        .HasDatabaseName("ix_margin_cost_ledger_entries_supersedes_id");
-
-                    b.HasIndex("MarginLotId", "CostType", "PeriodStart", "PeriodEnd", "Revision")
-                        .IsUnique()
-                        .HasDatabaseName("ix_margin_cost_ledger_entries_margin_lot_id_cost_type_period_start_period_end_revision");
-
-                    b.ToTable("margin_cost_ledger_entries", (string)null);
-                });
-
             modelBuilder.Entity("SwingAdviser.Domain.Positions.MarginLot", b =>
                 {
                     b.Property<int>("MarginLotId")
@@ -1439,10 +1058,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
                     b.HasKey("ContractTermRevisionId")
                         .HasName("pk_margin_lot_contract_term_revisions");
 
-                    b.HasIndex("FinalRepaymentDate")
-                        .HasDatabaseName("ix_margin_lot_contract_term_revisions_final_repayment_date")
-                        .HasFilter("status = 'Active'");
-
                     b.HasIndex("SupersedesRevisionId")
                         .HasDatabaseName("ix_margin_lot_contract_term_revisions_supersedes_revision_id");
 
@@ -1509,9 +1124,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("SourceCandidateResultId")
                         .HasDatabaseName("ix_positions_source_candidate_result_id");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("ix_positions_status");
 
                     b.ToTable("positions", (string)null);
                 });
@@ -2094,83 +1706,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
                     b.ToTable("risk_plans", (string)null);
                 });
 
-            modelBuilder.Entity("SwingAdviser.Domain.Analysis.AiCheckAttempt", b =>
-                {
-                    b.HasOne("SwingAdviser.Domain.Analysis.CandidateResult", "CandidateResult")
-                        .WithMany()
-                        .HasForeignKey("CandidateResultId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_ai_check_attempts_candidate_results_candidate_result_id");
-
-                    b.HasOne("SwingAdviser.Domain.Analysis.AnalysisInputManifest", "TechnicalInputManifest")
-                        .WithMany()
-                        .HasForeignKey("TechnicalInputManifestId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_ai_check_attempts_analysis_input_manifests_technical_input_manifest_id");
-
-                    b.HasOne("SwingAdviser.Domain.Analysis.DailyUpdateRun", "TriggeringDailyUpdateRun")
-                        .WithMany()
-                        .HasForeignKey("TriggeringDailyUpdateRunId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_ai_check_attempts_daily_update_runs_triggering_daily_update_run_id");
-
-                    b.Navigation("CandidateResult");
-
-                    b.Navigation("TechnicalInputManifest");
-
-                    b.Navigation("TriggeringDailyUpdateRun");
-                });
-
-            modelBuilder.Entity("SwingAdviser.Domain.Analysis.AiCheckEvidenceCitation", b =>
-                {
-                    b.HasOne("SwingAdviser.Domain.Analysis.AiCheckEvidenceItem", "EvidenceItem")
-                        .WithMany()
-                        .HasForeignKey("EvidenceItemId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_ai_check_evidence_citations_ai_check_evidence_items_evidence_item_id");
-
-                    b.Navigation("EvidenceItem");
-                });
-
-            modelBuilder.Entity("SwingAdviser.Domain.Analysis.AiCheckEvidenceItem", b =>
-                {
-                    b.HasOne("SwingAdviser.Domain.Analysis.AiCheckResult", "Result")
-                        .WithMany()
-                        .HasForeignKey("ResultId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_ai_check_evidence_items_ai_check_results_result_id");
-
-                    b.Navigation("Result");
-                });
-
-            modelBuilder.Entity("SwingAdviser.Domain.Analysis.AiCheckResult", b =>
-                {
-                    b.HasOne("SwingAdviser.Domain.Analysis.AiCheckAttempt", "Attempt")
-                        .WithMany()
-                        .HasForeignKey("AttemptId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_ai_check_results_ai_check_attempts_attempt_id");
-
-                    b.Navigation("Attempt");
-                });
-
-            modelBuilder.Entity("SwingAdviser.Domain.Analysis.AiCheckSource", b =>
-                {
-                    b.HasOne("SwingAdviser.Domain.Analysis.AiCheckResult", "Result")
-                        .WithMany()
-                        .HasForeignKey("ResultId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_ai_check_sources_ai_check_results_result_id");
-
-                    b.Navigation("Result");
-                });
-
             modelBuilder.Entity("SwingAdviser.Domain.Analysis.AnalysisInputManifest", b =>
                 {
                     b.HasOne("SwingAdviser.Domain.MarketData.Instrument", "Instrument")
@@ -2426,26 +1961,6 @@ namespace SwingAdviser.Infrastructure.Persistence.Migrations
                     b.Navigation("Instrument");
 
                     b.Navigation("SupersedesRevision");
-                });
-
-            modelBuilder.Entity("SwingAdviser.Domain.Positions.MarginCostLedgerEntry", b =>
-                {
-                    b.HasOne("SwingAdviser.Domain.Positions.MarginLot", "MarginLot")
-                        .WithMany()
-                        .HasForeignKey("MarginLotId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_margin_cost_ledger_entries_margin_lots_margin_lot_id");
-
-                    b.HasOne("SwingAdviser.Domain.Positions.MarginCostLedgerEntry", "Supersedes")
-                        .WithMany()
-                        .HasForeignKey("SupersedesId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_margin_cost_ledger_entries_margin_cost_ledger_entries_supersedes_id");
-
-                    b.Navigation("MarginLot");
-
-                    b.Navigation("Supersedes");
                 });
 
             modelBuilder.Entity("SwingAdviser.Domain.Positions.MarginLot", b =>
