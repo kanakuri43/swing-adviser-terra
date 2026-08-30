@@ -34,7 +34,6 @@
 - C#
 - WPF
 - MVVM
-- Prism
 - MahApps.Metro
 - SQLite 3
 - EF Core Migrations（DB スキーマ・マイグレーション管理）
@@ -44,10 +43,10 @@
 新規 NuGet 追加前に標準ライブラリ/既存依存で解決できないか確認する。
 
 ## Architecture
-- **Domain**: 銘柄、日足、企業アクション、ポジション、MarginLot、信用契約条件、信用コスト台帳、ポジション調整、約定履歴、戦略、シグナル、分析結果。WPF/Prism/SQLite/HTTP/Codex CLI を直接参照しない。
+- **Domain**: 銘柄、日足、企業アクション、ポジション、MarginLot、信用契約条件、信用コスト台帳、ポジション調整、約定履歴、戦略、シグナル、分析結果。WPF/SQLite/HTTP/Codex CLI を直接参照しない。
 - **Application**: 株価更新、全銘柄スキャン、候補抽出、保有再評価、AI チェック、手動約定登録。
 - **Infrastructure**: 株価データ、SQLite、HTTP、ファイル、Codex CLI。
-- **Presentation**: WPF + MVVM + Prism。code-behind に業務ロジックを書かず、ViewModel から DB/HTTP/CLI を直接操作しない。
+- **Presentation**: WPF + MVVM。code-behind に業務ロジックを書かず、ViewModel から DB/HTTP/CLI を直接操作しない。
 
 長時間処理は UI thread をブロックしない。I/O は原則 async/await。多重実行防止、キャンセル、進捗、失敗件数の可視化を優先する。
 

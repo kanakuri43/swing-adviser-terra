@@ -10,7 +10,6 @@
 
   <ItemGroup>
     <PackageReference Include="MahApps.Metro" Version="2.4.11" />
-    <PackageReference Include="Prism.DryIoc" Version="9.0.537" />
   </ItemGroup>
 
 </Project>

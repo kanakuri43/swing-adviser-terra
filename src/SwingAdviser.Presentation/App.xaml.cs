@@ -1,16 +1,7 @@
 using System.Windows;
-using Prism.Ioc;
 
 namespace SwingAdviser.Presentation;
 
-public partial class App
+public partial class App : Application
 {
-    protected override Window CreateShell()
-    {
-        return Container.Resolve<MainWindow>();
-    }
-
-    protected override void RegisterTypes(IContainerRegistry containerRegistry)
-    {
-    }
 }
