@@ -59,11 +59,11 @@ Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\U
 ## Phase 4 — UIモック確認①（メイン画面: 候補・保有・履歴）
 参照: [`product-spec.md`](./docs/product-spec.md) Candidate list / Positions / Trade records、参考デザイン `C:\Users\su\source\repos\swing-adviser-codex\src\SwingAdviser.Presentation`（ウインドウサイズ・コントロール配置・キャプションのみ参照。表示フィールドは本プロジェクトの `SwingAdviser.Domain` モデルに合わせる）
 
-- [ ] MahApps.Metro `MetroWindow` ベースのメイン画面骨格（`TabControl` に「候補」「保有」「履歴」の3タブ、ウインドウサイズ・最小サイズは参考デザインに合わせる）をダミーデータで実装
-- [ ] 「候補」タブ: `CandidateResult`/`IndicatorResult` 系フィールドで列構成（銘柄コード/銘柄名、Long/Short、Entry種別、判定基準バー日、適用戦略、スコア/信頼度、主な判定理由、AI状態、除外理由表示を含む）
-- [ ] 「保有」タブ: `Position`/`MarginLot`/`RiskPlan`/`PositionHoldingEvaluation`/`MarginCostLedgerEntry` 系フィールドで列構成（適用戦略、決済判定、判定日/判定理由、損切候補、利確候補、HOLD理由、返済期限・残営業日、確定/見積コスト、価格損益・ネット参考損益、要照合状態を含む）
-- [ ] 「履歴」タブ: `TradeExecution`（訂正revision含む）フィールドで列構成（登録元、約定日時/価格/株数、訂正操作の表現を含む）
-- [ ] 上記3タブをまとめてユーザーとレイアウト・情報量・誤操作防止の観点で確認する
+- [x] MahApps.Metro `MetroWindow` ベースのメイン画面骨格（`TabControl` に「候補」「保有」「履歴」の3タブ、ウインドウサイズ・最小サイズは参考デザインに合わせる）をダミーデータで実装
+- [x] 「候補」タブ: `CandidateResult`/`IndicatorResult` 系フィールドで列構成（銘柄コード/銘柄名、Long/Short、Entry種別、判定基準バー日、適用戦略、スコア/信頼度、主な判定理由、AI状態、除外理由表示を含む）
+- [x] 「保有」タブ: `Position`/`MarginLot`/`RiskPlan`/`PositionHoldingEvaluation`/`MarginCostLedgerEntry` 系フィールドで列構成（適用戦略、決済判定、判定日/判定理由、損切候補、利確候補、HOLD理由、返済期限・残営業日、確定/見積コスト、価格損益・ネット参考損益、要照合状態を含む）
+- [x] 「履歴」タブ: `TradeExecution`（訂正revision含む）フィールドで列構成（登録元、約定日時/価格/株数、訂正操作の表現を含む）
+- [x] 上記3タブをまとめてユーザーとレイアウト・情報量・誤操作防止の観点で確認する
 
 ## Phase 5 — リスク管理エンジン
 参照: [`risk-management.md`](./docs/risk-management.md)

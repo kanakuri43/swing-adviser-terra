@@ -1,7 +1,174 @@
 <mah:MetroWindow x:Class="SwingAdviser.Presentation.MainWindow"
                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:local="clr-namespace:SwingAdviser.Presentation.ViewModels"
                  xmlns:mah="http://metro.mahapps.com/winfx/xaml/controls"
-                 Title="SwingAdviser" Height="450" Width="800">
-    <Grid />
+                 Title="{Binding Title}"
+                 Width="1920"
+                 Height="1080"
+                 MinWidth="1100"
+                 MinHeight="700"
+                 GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+                 WindowStartupLocation="CenterScreen">
+    <mah:MetroWindow.DataContext>
+        <local:MainWindowViewModel />
+    </mah:MetroWindow.DataContext>
+
+    <mah:MetroWindow.Resources>
+        <Style x:Key="MutedText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray2}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="NoticeBorder" TargetType="Border">
+            <Setter Property="Padding" Value="12" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Gray9}" />
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </mah:MetroWindow.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Style="{StaticResource NoticeBorder}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock FontSize="20" FontWeight="SemiBold" Text="日本株スイング判断支援" />
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource MutedText}" Text="{Binding SafetyNotice}" />
+                </StackPanel>
+                <Border Grid.Column="1" Margin="16,0,0,0" Padding="8,4" CornerRadius="3"
+                        Background="#FFF3CD" BorderBrush="#FFE69C" BorderThickness="1">
+                    <TextBlock Foreground="#664D03" FontWeight="SemiBold" Text="UIモック — 表示内容はダミーデータ" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <TextBlock Grid.Row="1" Margin="0,8" Style="{StaticResource MutedText}" Text="{Binding MockStatus}" />
+
+        <TabControl Grid.Row="2">
+            <TabItem Header="候補">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DataGrid AutoGenerateColumns="False" FrozenColumnCount="3" IsReadOnly="True"
+                              CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding Candidates}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
+                            <DataGridTextColumn Width="150" Binding="{Binding Name}" Header="銘柄名" />
+                            <DataGridTextColumn Width="95" Binding="{Binding Direction}" Header="Long/Short" />
+                            <DataGridTextColumn Width="75" Binding="{Binding EntryType}" Header="Entry種別" />
+                            <DataGridTextColumn Width="110" Binding="{Binding EvaluationBarDate}" Header="判定基準バー日" />
+                            <DataGridTextColumn Width="150" Binding="{Binding Strategy}" Header="適用戦略" />
+                            <DataGridTextColumn Width="70" Binding="{Binding Score}" Header="スコア" />
+                            <DataGridTextColumn Width="80" Binding="{Binding Confidence}" Header="信頼度" />
+                            <DataGridTextColumn Width="250" Binding="{Binding PrimaryReason}" Header="主な判定理由" />
+                            <DataGridTextColumn Width="130" Binding="{Binding AiStatus}" Header="AI状態" />
+                            <DataGridTemplateColumn Width="155" Header="登録（モック）">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Padding="8,3" Click="ShowCandidateRegistrationPreview"
+                                                Content="約定入力を表示" ToolTip="保存しないUIモックを表示します。" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <Expander Grid.Row="1" Margin="0,8,0,0" IsExpanded="True" Header="対象外・データ不足（ダミー 2件）">
+                        <DataGrid Margin="0,4,0,0" MaxHeight="145" AutoGenerateColumns="False" IsReadOnly="True"
+                                  CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding ExcludedCandidates}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Width="90" Binding="{Binding Code}" Header="コード" />
+                                <DataGridTextColumn Width="190" Binding="{Binding Name}" Header="銘柄名" />
+                                <DataGridTextColumn Width="175" Binding="{Binding DataStatus}" Header="データ状態" />
+                                <DataGridTextColumn Width="155" Binding="{Binding History}" Header="保有 / 必要履歴本数" />
+                                <DataGridTextColumn Width="*" Binding="{Binding ExclusionReason}" Header="除外理由・確認事項" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Expander>
+                    <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                        <TextBlock Style="{StaticResource MutedText}" Text="{Binding CandidateCaption}" />
+                        <TextBlock Margin="0,3,0,0" Style="{StaticResource MutedText}" Text="対象外は条件不一致と混同せず、履歴不足・データ不正・point-in-time 非保証などの理由を表示します。" />
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="保有">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DataGrid AutoGenerateColumns="False" FrozenColumnCount="3" IsReadOnly="True"
+                              CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding Positions}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
+                            <DataGridTextColumn Width="150" Binding="{Binding Name}" Header="銘柄名" />
+                            <DataGridTextColumn Width="95" Binding="{Binding Direction}" Header="Long/Short" />
+                            <DataGridTextColumn Width="90" Binding="{Binding Quantity}" Header="現在数量" />
+                            <DataGridTextColumn Width="150" Binding="{Binding Strategy}" Header="適用戦略" />
+                            <DataGridTextColumn Width="120" Binding="{Binding ExitDecision}" Header="決済判定" />
+                            <DataGridTextColumn Width="110" Binding="{Binding EvaluationDate}" Header="判定日" />
+                            <DataGridTextColumn Width="230" Binding="{Binding DecisionReason}" Header="判定理由" />
+                            <DataGridTextColumn Width="105" Binding="{Binding StopCandidate}" Header="損切候補" />
+                            <DataGridTextColumn Width="105" Binding="{Binding TakeProfitCandidate}" Header="利確候補" />
+                            <DataGridTextColumn Width="200" Binding="{Binding HoldReason}" Header="HOLD理由" />
+                            <DataGridTextColumn Width="170" Binding="{Binding RepaymentTerm}" Header="返済期限・残営業日" />
+                            <DataGridTextColumn Width="115" Binding="{Binding ConfirmedCost}" Header="確定コスト" />
+                            <DataGridTextColumn Width="115" Binding="{Binding EstimatedCost}" Header="見積コスト" />
+                            <DataGridTextColumn Width="115" Binding="{Binding PriceProfitAndLoss}" Header="価格損益" />
+                            <DataGridTextColumn Width="135" Binding="{Binding NetReferenceProfitAndLoss}" Header="ネット参考損益" />
+                            <DataGridTextColumn Width="175" Binding="{Binding ReconciliationStatus}" Header="要照合状態" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock Grid.Row="1" Margin="0,8,0,0" Style="{StaticResource MutedText}"
+                               Text="損切・利確・決済判定は判断支援です。自動決済・自動発注は行いません。期限・コストが未確認の場合は金額を0円として表示しません。" />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="履歴">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DataGrid AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                              ItemsSource="{Binding Executions}" RowDetailsVisibilityMode="VisibleWhenSelected">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
+                            <DataGridTextColumn Width="160" Binding="{Binding Name}" Header="銘柄名" />
+                            <DataGridTextColumn Width="95" Binding="{Binding Direction}" Header="Long/Short" />
+                            <DataGridTextColumn Width="80" Binding="{Binding ExecutionRole}" Header="新規/決済" />
+                            <DataGridTextColumn Width="165" Binding="{Binding RegistrationSource}" Header="登録元" />
+                            <DataGridTextColumn Width="145" Binding="{Binding ExecutedAt}" Header="約定日時" />
+                            <DataGridTextColumn Width="100" Binding="{Binding Price}" Header="約定価格" />
+                            <DataGridTextColumn Width="90" Binding="{Binding Quantity}" Header="株数" />
+                            <DataGridTextColumn Width="135" Binding="{Binding RevisionStatus}" Header="訂正操作・revision" />
+                        </DataGrid.Columns>
+                        <DataGrid.RowDetailsTemplate>
+                            <DataTemplate>
+                                <Border Margin="18,4" Padding="8" Background="{DynamicResource MahApps.Brushes.Gray9}" CornerRadius="3">
+                                    <TextBlock TextWrapping="Wrap" Text="{Binding RevisionDetail}" />
+                                </Border>
+                            </DataTemplate>
+                        </DataGrid.RowDetailsTemplate>
+                    </DataGrid>
+                    <TextBlock Grid.Row="1" Margin="0,8,0,0" Style="{StaticResource MutedText}"
+                               Text="約定履歴は利用者が明示的に入力・確認して登録する監査原票です。訂正は元の記録を上書きせず revision として残します（登録・訂正操作は Phase 6 で実装予定）。" />
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
 </mah:MetroWindow>
