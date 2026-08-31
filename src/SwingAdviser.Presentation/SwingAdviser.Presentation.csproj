@@ -9,6 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SwingAdviser.Application\SwingAdviser.Application.csproj" />
+    <ProjectReference Include="..\SwingAdviser.Infrastructure\SwingAdviser.Infrastructure.csproj" />
     <PackageReference Include="MahApps.Metro" Version="2.4.11" />
   </ItemGroup>
 

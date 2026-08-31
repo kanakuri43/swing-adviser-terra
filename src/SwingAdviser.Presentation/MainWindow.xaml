@@ -1,7 +1,6 @@
 <mah:MetroWindow x:Class="SwingAdviser.Presentation.MainWindow"
                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                 xmlns:local="clr-namespace:SwingAdviser.Presentation.ViewModels"
                  xmlns:mah="http://metro.mahapps.com/winfx/xaml/controls"
                  Title="{Binding Title}"
                  Width="1920"
@@ -10,10 +9,6 @@
                  MinHeight="700"
                  GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
                  WindowStartupLocation="CenterScreen">
-    <mah:MetroWindow.DataContext>
-        <local:MainWindowViewModel />
-    </mah:MetroWindow.DataContext>
-
     <mah:MetroWindow.Resources>
         <Style x:Key="MutedText" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray2}" />
@@ -76,11 +71,11 @@
                             <DataGridTextColumn Width="80" Binding="{Binding Confidence}" Header="信頼度" />
                             <DataGridTextColumn Width="250" Binding="{Binding PrimaryReason}" Header="主な判定理由" />
                             <DataGridTextColumn Width="130" Binding="{Binding AiStatus}" Header="AI状態" />
-                            <DataGridTemplateColumn Width="155" Header="登録（モック）">
+                            <DataGridTemplateColumn Width="155" Header="手動約定登録">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <Button Padding="8,3" Click="ShowCandidateRegistrationPreview"
-                                                Content="約定入力を表示" ToolTip="保存しないUIモックを表示します。" />
+                                        Content="約定を手入力" ToolTip="候補は銘柄・方向の入力補助だけに使います。" />
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
@@ -166,7 +161,7 @@
                         </DataGrid.RowDetailsTemplate>
                     </DataGrid>
                     <TextBlock Grid.Row="1" Margin="0,8,0,0" Style="{StaticResource MutedText}"
-                               Text="約定履歴は利用者が明示的に入力・確認して登録する監査原票です。訂正は元の記録を上書きせず revision として残します（登録・訂正操作は Phase 6 で実装予定）。" />
+                               Text="約定履歴は利用者が明示的に入力・確認して登録する監査原票です。訂正は元の記録を上書きせず revision として残します。" />
                 </Grid>
             </TabItem>
         </TabControl>

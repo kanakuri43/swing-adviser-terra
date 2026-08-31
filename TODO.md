@@ -76,9 +76,9 @@ Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\U
 
 ## Phase 6 — ポジション・約定管理（手動登録フロー）
 参照: [`product-spec.md`](./docs/product-spec.md) Trade records、`AGENTS.md` Non-negotiable rules
-- [ ] 約定登録画面（候補一覧からの銘柄/方向入力補助→価格/日時/株数は利用者入力→保存前確認）実装
-- [ ] 部分決済のlot allocation明示登録（FIFO等の自動推測をしない）実装
-- [ ] 企業アクション換算・要照合状態の反映実装
+- [x] 約定登録画面（候補一覧からの銘柄/方向入力補助→価格/日時/株数は利用者入力→保存前確認）実装
+- [x] 部分決済のlot allocation明示登録（FIFO等の自動推測をしない）実装
+- [x] 企業アクション換算・要照合状態の反映実装
 
 ## Phase 7 — 日次更新オーケストレーション
 参照: [`product-spec.md`](./docs/product-spec.md) Daily update workflow

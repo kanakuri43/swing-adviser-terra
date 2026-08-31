@@ -40,6 +40,28 @@ public sealed class MainWindowViewModel
         new("9432", "NTT", "Long", "新規", "利用者手入力", "2026-08-05 10:15", "154.2円", "1,000株", "Rev 1（現行）", "Rev 1: 利用者確認済み。訂正は元の約定を残した新しい revision として登録します。"),
         new("8306", "三菱UFJフィナンシャル・グループ", "Short", "新規", "候補から入力補助", "2026-08-12 13:40", "1,980.0円", "500株", "Rev 2（訂正済み）", "Rev 1: 2026-08-12 13:38 / 1,978.0円 / 500株。Rev 2: 利用者が証券会社の約定通知を確認して価格を訂正。"),
     ];
+
+    public async Task ReloadManualRecordsAsync(SwingAdviser.Application.Positions.IManualPositionOverviewReader reader)
+    {
+        var positions = await reader.GetOpenPositionsAsync();
+        var executions = await reader.GetExecutionsAsync();
+        if (positions.Count > 0)
+        {
+            Positions.Clear();
+            foreach (var position in positions)
+            {
+                Positions.Add(new PositionRow(position.Code, position.Name, position.Side, $"{position.CurrentQuantity:n0}株", position.Strategy, "未評価", "未評価", "手動登録済み。日次更新後に保有再評価を表示します。", "未算定", "未算定", "未算定", "期限未確認", "未算定", "未算定", "未算定", "未算定", position.ReconciliationStatus, position.PositionId));
+            }
+        }
+        if (executions.Count > 0)
+        {
+            Executions.Clear();
+            foreach (var execution in executions)
+            {
+                Executions.Add(new ExecutionRow(execution.Code, execution.Name, execution.Side, execution.ExecutionRole == "Open" ? "新規" : "決済", execution.RegistrationSource, execution.ExecutedAt.ToString("yyyy-MM-dd HH:mm zzz"), $"{execution.Price:n4}円", $"{execution.Quantity:n0}株", $"Rev {execution.Revision}（{execution.Status}）", execution.Notes ?? "利用者確認済みの約定監査原票です。", execution.TradeExecutionId));
+            }
+        }
+    }
 }
 
 public sealed record CandidateRow(
@@ -78,7 +100,8 @@ public sealed record PositionRow(
     string EstimatedCost,
     string PriceProfitAndLoss,
     string NetReferenceProfitAndLoss,
-    string ReconciliationStatus);
+    string ReconciliationStatus,
+    int? PositionId = null);
 
 public sealed record ExecutionRow(
     string Code,
@@ -90,4 +113,5 @@ public sealed record ExecutionRow(
     string Price,
     string Quantity,
     string RevisionStatus,
-    string RevisionDetail);
+    string RevisionDetail,
+    int? TradeExecutionId = null);
