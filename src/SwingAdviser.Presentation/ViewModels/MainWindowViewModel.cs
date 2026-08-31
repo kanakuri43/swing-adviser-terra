@@ -76,6 +76,17 @@ public sealed class MainWindowViewModel
             }
         }
     }
+
+    public async Task ReloadAiChecksAsync(SwingAdviser.Application.Analysis.IAiCheckOverviewReader reader)
+    {
+        var overview = await reader.GetOverviewAsync();
+        if (overview.Candidates.Count == 0) return;
+        Candidates.Clear();
+        foreach (var candidate in overview.Candidates)
+        {
+            Candidates.Add(new CandidateRow(candidate.Code, candidate.Name, candidate.Direction, "Entry", candidate.EvaluationBarDate.ToString("yyyy-MM-dd"), "保存済み戦略", candidate.Score?.ToString() ?? "未算定", candidate.Confidence ?? "未算定", "保存済みのテクニカル候補。AI結果は参考情報です。", candidate.AiStatus, candidate.CandidateResultId, candidate.LatestAttemptId, candidate.Verdict, candidate.VerdictAlignment, candidate.Summary));
+        }
+    }
 }
 
 public sealed record CandidateRow(
@@ -88,7 +99,12 @@ public sealed record CandidateRow(
     string Score,
     string Confidence,
     string PrimaryReason,
-    string AiStatus);
+    string AiStatus,
+    int? CandidateResultId = null,
+    int? LatestAiAttemptId = null,
+    string? AiVerdict = null,
+    string? AiVerdictAlignment = null,
+    string? AiSummary = null);
 
 public sealed record UpdateProgressRow(
     string Status,

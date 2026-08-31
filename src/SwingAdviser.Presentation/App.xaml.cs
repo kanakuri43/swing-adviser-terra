@@ -1,4 +1,5 @@
 using System.Windows;
+using SwingAdviser.Infrastructure.Analysis;
 using SwingAdviser.Infrastructure.Positions;
 
 namespace SwingAdviser.Presentation;
@@ -6,6 +7,7 @@ namespace SwingAdviser.Presentation;
 public partial class App : System.Windows.Application
 {
     private RuntimePositionServices? _services;
+    private RuntimeAiCheckServices? _aiServices;
 
     protected override void OnStartup(StartupEventArgs eventArgs)
     {
@@ -13,7 +15,13 @@ public partial class App : System.Windows.Application
         try
         {
             _services = RuntimePositionServices.Create();
-            new MainWindow(_services.Registration, _services.InstrumentLookup, _services.OverviewReader).Show();
+            _aiServices = RuntimeAiCheckServices.Create();
+            _ = Task.Run(async () =>
+            {
+                await _aiServices.Queue.RecoverInterruptedAsync(CancellationToken.None);
+                await _aiServices.Queue.ProcessAvailableAsync(CancellationToken.None);
+            });
+            new MainWindow(_services.Registration, _services.InstrumentLookup, _services.OverviewReader, _aiServices.Queue, _aiServices.Queue).Show();
         }
         catch (Exception exception)
         {

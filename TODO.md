@@ -94,11 +94,11 @@ Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\U
 
 ## Phase 9 — AIチェック統合
 参照: [`ai-analysis.md`](./docs/ai-analysis.md)
-- [ ] Codex CLI 実行基盤（timeout・shell injection対策・秘密情報非露出）実装
-- [ ] 永続キュー（`Queued→Running→終端状態`、最大2並列、キャンセル・再試行）実装
-- [ ] semantic schema v1（`ai-result-v1`）パーサー・バリデーション実装
-- [ ] AIチェック状態・結果のUI実装（Verdictと候補方向の整合/逆表現、`InsufficientInformation`と`Neutral`の非混同）
-- [ ] AI失敗時フォールバック（テクニカル結果を無効化しない）のテスト
+- [x] Codex CLI 実行基盤（timeout・shell injection対策・秘密情報非露出）実装
+- [x] 永続キュー（`Queued→Running→終端状態`、最大2並列、キャンセル・再試行）実装
+- [x] semantic schema v1（`ai-result-v1`）パーサー・バリデーション実装
+- [x] AIチェック状態・結果のUI実装（Verdictと候補方向の整合/逆表現、`InsufficientInformation`と`Neutral`の非混同）
+- [x] AI失敗時フォールバック（テクニカル結果を無効化しない）のテスト
 
 ## Phase 10 — UIモック確認③（AIチェック状態・結果表示）
 参照: [`ai-analysis.md`](./docs/ai-analysis.md)、[`product-spec.md`](./docs/product-spec.md) UI/UX

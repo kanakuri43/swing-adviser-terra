@@ -111,7 +111,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <DataGrid AutoGenerateColumns="False" FrozenColumnCount="3" IsReadOnly="True"
+                    <DataGrid x:Name="CandidateGrid" AutoGenerateColumns="False" FrozenColumnCount="3" IsReadOnly="True" SelectionMode="Extended"
                               CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding Candidates}">
                         <DataGrid.Columns>
                             <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
@@ -124,6 +124,29 @@
                             <DataGridTextColumn Width="80" Binding="{Binding Confidence}" Header="信頼度" />
                             <DataGridTextColumn Width="250" Binding="{Binding PrimaryReason}" Header="主な判定理由" />
                             <DataGridTextColumn Width="130" Binding="{Binding AiStatus}" Header="AI状態" />
+                            <DataGridTextColumn Width="100" Binding="{Binding AiVerdict}" Header="AI Verdict" />
+                            <DataGridTextColumn Width="140" Binding="{Binding AiVerdictAlignment}" Header="候補方向との関係" />
+                            <DataGridTemplateColumn Width="100" Header="AIチェック">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Padding="8,3" Click="QueueCandidateAiCheck" Content="実行" ToolTip="選択候補に対する追加調査をキューへ追加します。注文・約定は行いません。" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Width="115" Header="キュー操作">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Padding="8,3" Click="CancelOrRetryAiCheck" Content="取消 / 再実行" ToolTip="待機中は取消、終端状態は新しい試行として再実行します。" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Width="90" Header="AI結果">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Padding="8,3" Click="ShowAiCheckDetail" Content="詳細" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTemplateColumn Width="155" Header="手動約定登録">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
@@ -147,7 +170,9 @@
                         </DataGrid>
                     </Expander>
                     <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                        <Button HorizontalAlignment="Left" Padding="10,4" Click="QueueSelectedCandidateAiChecks" Content="選択した候補をAIチェック" ToolTip="選択した候補をまとめて永続キューへ追加します。注文・約定は行いません。" />
                         <TextBlock Style="{StaticResource MutedText}" Text="{Binding CandidateCaption}" />
+                        <TextBlock Margin="0,3,0,0" Style="{StaticResource MutedText}" Text="AI Verdict は売買推奨ではありません。Long + Bullish / Short + Bearish は候補方向と整合、逆の組合せは候補方向と逆、Neutral は中立として表示します。情報不足はNeutralへ変換しません。" />
                         <TextBlock Margin="0,3,0,0" Style="{StaticResource MutedText}" Text="対象外は条件不一致と混同せず、履歴不足・データ不正・point-in-time 非保証などの理由を表示します。" />
                     </StackPanel>
                 </Grid>

@@ -7,13 +7,18 @@ public static class RuntimeSwingAdviserDbContextFactory
 {
     public static SwingAdviserDbContext CreateMigratedContext()
     {
+        var context = CreateContext();
+        context.Database.Migrate();
+        return context;
+    }
+
+    public static SwingAdviserDbContext CreateContext()
+    {
         var databasePath = RuntimeDatabasePathResolver.ResolveWritableDatabasePath();
         var options = new DbContextOptionsBuilder<SwingAdviserDbContext>()
             .UseSqlite($"Data Source={databasePath}")
             .UseSnakeCaseNamingConvention()
             .Options;
-        var context = new SwingAdviserDbContext(options);
-        context.Database.Migrate();
-        return context;
+        return new SwingAdviserDbContext(options);
     }
 }

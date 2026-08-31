@@ -11,6 +11,8 @@ public sealed class AiCheckAttempt
     public DateTime? CompletedAtUtc { get; set; }
     public string Status { get; set; } = string.Empty;
     public DateOnly EvaluationBarDate { get; set; }
+    /// <summary>Canonical, secret-free input sent to the AI. It is retained so the input hash can be reproduced.</summary>
+    public string NormalizedInputSnapshotJson { get; set; } = string.Empty;
     public string NormalizedInputSnapshotHash { get; set; } = string.Empty;
     public int TechnicalInputManifestId { get; set; }
     public string StrategySnapshotHash { get; set; } = string.Empty;
