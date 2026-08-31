@@ -3,7 +3,7 @@ using System.Collections.ObjectModel;
 namespace SwingAdviser.Presentation.ViewModels;
 
 /// <summary>
-/// Phase 4 layout-only data source. Production data access is deliberately deferred.
+/// Phase 4 and 8 layout-only data source. Production data access is deliberately deferred.
 /// </summary>
 public sealed class MainWindowViewModel
 {
@@ -12,9 +12,23 @@ public sealed class MainWindowViewModel
     public string SafetyNotice =>
         "分析結果は参考情報です。注文・自動売買は行いません。約定は証券会社の通知を確認し、利用者が入力・確認した内容だけを保存します。";
 
-    public string MockStatus => "Phase 4 UIモック確認①: レイアウト・情報量・誤操作防止を確認するための静的なダミーデータです。";
+    public string MockStatus => "Phase 4・8 UIモック確認: レイアウト・情報量・誤操作防止を確認するための静的なダミーデータです。";
 
     public string CandidateCaption => "スコアは候補条件への一致度を表す参考情報であり、勝率や利益を保証するものではありません。";
+
+    public UpdateProgressRow DailyUpdateProgress { get; } = new(
+        "完了",
+        100,
+        false,
+        "11 / 11 ステップ完了  ・  成功 3,841銘柄  ・  失敗 3銘柄",
+        "2026-08-31 16:12 JST 完了。失敗銘柄と原因は更新履歴で確認します。");
+
+    public UpdateProgressRow AiQueueProgress { get; } = new(
+        "継続中",
+        50,
+        true,
+        "対象 6件  ・  成功 2件  ・  実行中 2件  ・  待機中 2件  ・  失敗 0件",
+        "AIチェックは非同期です。失敗しても日次分析結果を無効にしません。");
 
     public ObservableCollection<CandidateRow> Candidates { get; } =
     [
@@ -31,8 +45,8 @@ public sealed class MainWindowViewModel
 
     public ObservableCollection<PositionRow> Positions { get; } =
     [
-        new("9432", "NTT", "Long", "1,000株", "swing-long-v1", "HOLD", "2026-08-28", "トレンド継続。損切・利確ライン未到達", "150.0円", "165.0円", "期限・コスト情報を確認中", "2026-11-20 / 残 57営業日", "-1,240円", "未確定", "+8,500円", "未算定（見積コスト欠損）", "期限確認済み / コスト要確認"),
-        new("8306", "三菱UFJフィナンシャル・グループ", "Short", "500株", "swing-short-v1", "利確候補", "2026-08-28", "利確目標に接近。逆行時は損切候補を確認", "2,080.0円", "1,910.0円", "HOLD理由なし", "期限未確認 / 残営業日 未算定", "未確定", "-860円", "+31,000円", "未算定（確定コスト欠損）", "期限未確認・企業アクション要照合"),
+        new("9432", "NTT", "Long", "1,000株", "swing-long-v1", "HOLD", "2026-08-28", "トレンド継続。損切・利確ライン未到達", "150.0円", "165.0円", "期限・コスト情報を確認中", "2026-11-20 / 残 57営業日", "-1,240円", "未確定", "+8,500円", "未算定（見積コスト欠損）", "期限確認済み / コスト要確認", 101),
+        new("8306", "三菱UFJフィナンシャル・グループ", "Short", "500株", "swing-short-v1", "利確候補", "2026-08-28", "利確目標に接近。逆行時は損切候補を確認", "2,080.0円", "1,910.0円", "HOLD理由なし", "期限未確認 / 残営業日 未算定", "未確定", "-860円", "+31,000円", "未算定（確定コスト欠損）", "期限未確認・企業アクション要照合", 102),
     ];
 
     public ObservableCollection<ExecutionRow> Executions { get; } =
@@ -75,6 +89,13 @@ public sealed record CandidateRow(
     string Confidence,
     string PrimaryReason,
     string AiStatus);
+
+public sealed record UpdateProgressRow(
+    string Status,
+    double ProgressPercent,
+    bool IsIndeterminate,
+    string Summary,
+    string Detail);
 
 public sealed record ExcludedCandidateRow(
     string Code,

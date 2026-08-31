@@ -13,18 +13,18 @@
         <Border Padding="12" Background="#FFF3CD" BorderBrush="#FFE69C" BorderThickness="1" CornerRadius="4">
             <StackPanel>
                 <TextBlock FontWeight="SemiBold" Foreground="#664D03" Text="証券会社の約定通知を確認してから、すべて利用者が入力してください" />
-                <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="候補から渡すのは銘柄・Long/Short・戦略の入力補助のみです。現在値、終値、サイン日時、AI判定は使用しません。保存前に内容を確認します。" />
+                <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding RegistrationGuidance}" />
             </StackPanel>
         </Border>
         <Grid Grid.Row="1" Margin="0,16,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="155" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
             <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="銘柄コード" />
-            <TextBox Grid.Column="1" Padding="6,4" Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBox Grid.Column="1" Padding="6,4" IsReadOnly="{Binding IsPositionCloseRegistration, Mode=OneWay}" Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}" />
         </Grid>
         <Grid Grid.Row="2" Margin="0,10,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="155" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
             <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="方向" />
-            <ComboBox Grid.Column="1" SelectedValue="{Binding Side}" SelectedValuePath="Content"><ComboBoxItem Content="Long" /><ComboBoxItem Content="Short" /></ComboBox>
+            <ComboBox Grid.Column="1" IsEnabled="{Binding IsCandidateRegistration, Mode=OneWay}" SelectedValue="{Binding Side}" SelectedValuePath="Content"><ComboBoxItem Content="Long" /><ComboBoxItem Content="Short" /></ComboBox>
         </Grid>
         <Grid Grid.Row="3" Margin="0,10,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="155" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -39,12 +39,12 @@
         <Grid Grid.Row="5" Margin="0,10,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="155" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
             <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="戦略キー / version" />
-            <StackPanel Grid.Column="1" Orientation="Horizontal"><TextBox Width="190" Padding="6,4" Text="{Binding StrategyKey, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Margin="10,0" VerticalAlignment="Center" Text="/" /><TextBox Width="120" Padding="6,4" Text="{Binding StrategyVersion, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal"><TextBox Width="190" Padding="6,4" IsReadOnly="{Binding IsPositionCloseRegistration, Mode=OneWay}" Text="{Binding StrategyKey, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Margin="10,0" VerticalAlignment="Center" Text="/" /><TextBox Width="120" Padding="6,4" IsReadOnly="{Binding IsPositionCloseRegistration, Mode=OneWay}" Text="{Binding StrategyVersion, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
         </Grid>
-        <Expander Grid.Row="6" Margin="0,14,0,0" Header="決済として登録する場合（lot 割当は必須）">
+        <Expander Grid.Row="6" Margin="0,14,0,0" Header="{Binding CloseRegistrationHeader}" IsExpanded="{Binding IsPositionCloseRegistration, Mode=OneWay}">
             <StackPanel Margin="0,8,0,0">
                 <TextBlock TextWrapping="Wrap" Text="新規建では入力不要です。決済では対象ポジション ID と、どの lot に何株を充当するかを利用者が明示入力します。FIFO 等は使用しません。" />
-                <StackPanel Margin="0,8,0,0" Orientation="Horizontal"><TextBlock VerticalAlignment="Center" Text="対象ポジション ID" /><TextBox Margin="12,0,0,0" Width="120" Padding="6,4" Text="{Binding ClosePositionIdText, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
+                <StackPanel Margin="0,8,0,0" Orientation="Horizontal"><TextBlock VerticalAlignment="Center" Text="対象ポジション ID" /><TextBox Margin="12,0,0,0" Width="120" Padding="6,4" IsReadOnly="{Binding IsPositionCloseRegistration, Mode=OneWay}" Text="{Binding ClosePositionIdText, UpdateSourceTrigger=PropertyChanged}" /></StackPanel>
                 <DataGrid Margin="0,8,0,0" AutoGenerateColumns="False" CanUserAddRows="True" CanUserDeleteRows="True" ItemsSource="{Binding Allocations}" Height="135">
                     <DataGrid.Columns><DataGridTextColumn Header="lot ID" Width="*" Binding="{Binding MarginLotIdText, UpdateSourceTrigger=PropertyChanged}" /><DataGridTextColumn Header="割当株数" Width="*" Binding="{Binding QuantityText, UpdateSourceTrigger=PropertyChanged}" /></DataGrid.Columns>
                 </DataGrid>

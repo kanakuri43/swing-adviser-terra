@@ -31,4 +31,25 @@ public partial class MainWindow
         }.ShowDialog();
         if (result == true) _ = _viewModel.ReloadManualRecordsAsync(_overviewReader);
     }
+
+    private void ShowPositionRegistrationPreview(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if ((sender as System.Windows.FrameworkElement)?.DataContext is not ViewModels.PositionRow position)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = new CandidateRegistrationPreviewWindow(position, _registrationService, _instrumentLookup)
+            {
+                Owner = this,
+            }.ShowDialog();
+            if (result == true) _ = _viewModel.ReloadManualRecordsAsync(_overviewReader);
+        }
+        catch (Exception exception)
+        {
+            System.Windows.MessageBox.Show(this, $"決済約定の入力画面を開けませんでした。\n{exception.Message}", "画面エラー", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        }
+    }
 }

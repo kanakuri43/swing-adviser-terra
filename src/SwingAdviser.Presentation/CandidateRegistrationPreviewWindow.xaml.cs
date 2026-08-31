@@ -18,6 +18,13 @@ public partial class CandidateRegistrationPreviewWindow : MetroWindow
         InitializeComponent();
     }
 
+    public CandidateRegistrationPreviewWindow(PositionRow position, ManualTradeRegistrationService registrationService, IInstrumentLookup instrumentLookup)
+    {
+        _viewModel = new CandidateRegistrationViewModel(position, registrationService, instrumentLookup);
+        DataContext = _viewModel;
+        InitializeComponent();
+    }
+
     private async void ConfirmAndSave(object sender, RoutedEventArgs e)
     {
         if (!_viewModel.TryBuildRequest(out var summary)) return;
@@ -47,6 +54,7 @@ public sealed class CandidateRegistrationViewModel : ObservableObject
     private string _strategyKey;
     private string _strategyVersion = "v1";
     private string _closePositionIdText = string.Empty;
+    private readonly bool _isPositionCloseRegistration;
     private bool _userConfirmed;
     private string _validationMessage = string.Empty;
 
@@ -59,6 +67,17 @@ public sealed class CandidateRegistrationViewModel : ObservableObject
         _strategyKey = candidate.Strategy;
     }
 
+    public CandidateRegistrationViewModel(PositionRow position, ManualTradeRegistrationService registrationService, IInstrumentLookup instrumentLookup)
+    {
+        _registrationService = registrationService;
+        _instrumentLookup = instrumentLookup;
+        _code = position.Code;
+        _side = position.Direction;
+        _strategyKey = position.Strategy;
+        _closePositionIdText = position.PositionId?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+        _isPositionCloseRegistration = true;
+    }
+
     public string Code { get => _code; set => Set(ref _code, value); }
     public string Side { get => _side; set => Set(ref _side, value); }
     public string ExecutedAtText { get => _executedAtText; set => Set(ref _executedAtText, value); }
@@ -67,6 +86,14 @@ public sealed class CandidateRegistrationViewModel : ObservableObject
     public string StrategyKey { get => _strategyKey; set => Set(ref _strategyKey, value); }
     public string StrategyVersion { get => _strategyVersion; set => Set(ref _strategyVersion, value); }
     public string ClosePositionIdText { get => _closePositionIdText; set => Set(ref _closePositionIdText, value); }
+    public bool IsPositionCloseRegistration => _isPositionCloseRegistration;
+    public bool IsCandidateRegistration => !_isPositionCloseRegistration;
+    public string RegistrationGuidance => IsPositionCloseRegistration
+        ? "保有一覧から渡すのは銘柄・Long/Short・対象ポジションの入力補助のみです。約定日時、価格、株数、lot配分は利用者が証券会社の約定通知を確認して入力します。保存前に内容を確認します。"
+        : "候補から渡すのは銘柄・Long/Short・戦略の入力補助のみです。現在値、終値、サイン日時、AI判定は使用しません。保存前に内容を確認します。";
+    public string CloseRegistrationHeader => IsPositionCloseRegistration
+        ? "決済として登録します（lot 割当は必須）"
+        : "決済として登録する場合（lot 割当は必須）";
     public bool UserConfirmed { get => _userConfirmed; set => Set(ref _userConfirmed, value); }
     public string ValidationMessage { get => _validationMessage; set => Set(ref _validationMessage, value); }
     public ObservableCollection<AllocationDraft> Allocations { get; } = [];

@@ -19,6 +19,10 @@
             <Setter Property="CornerRadius" Value="4" />
             <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Gray9}" />
         </Style>
+        <Style x:Key="ProgressCard" TargetType="Border" BasedOn="{StaticResource NoticeBorder}">
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray6}" />
+        </Style>
         <Style TargetType="DataGridCell">
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
@@ -26,6 +30,7 @@
 
     <Grid Margin="16">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -48,9 +53,57 @@
             </Grid>
         </Border>
 
-        <TextBlock Grid.Row="1" Margin="0,8" Style="{StaticResource MutedText}" Text="{Binding MockStatus}" />
+        <Grid Grid.Row="1" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
 
-        <TabControl Grid.Row="2">
+            <Border Style="{StaticResource ProgressCard}" BorderBrush="#FF6F9D75">
+                <StackPanel>
+                    <DockPanel>
+                        <TextBlock FontWeight="SemiBold" Text="日次分析更新" />
+                        <TextBlock DockPanel.Dock="Right" Foreground="#FF256029" FontWeight="SemiBold"
+                                   Text="{Binding DailyUpdateProgress.Status}" />
+                    </DockPanel>
+                    <ProgressBar Margin="0,8,0,0" Height="14" Minimum="0" Maximum="100"
+                                 Value="{Binding DailyUpdateProgress.ProgressPercent}" />
+                    <TextBlock Margin="0,6,0,0" Style="{StaticResource MutedText}"
+                               Text="{Binding DailyUpdateProgress.Summary}" />
+                    <TextBlock Margin="0,2,0,0" Style="{StaticResource MutedText}"
+                               Text="{Binding DailyUpdateProgress.Detail}" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1" Margin="12,0,0,0" Style="{StaticResource ProgressCard}" BorderBrush="#FF4D8BC8">
+                <StackPanel>
+                    <DockPanel>
+                        <TextBlock FontWeight="SemiBold" Text="AIチェック" />
+                        <TextBlock DockPanel.Dock="Right" Foreground="#FF2166A5" FontWeight="SemiBold"
+                                   Text="{Binding AiQueueProgress.Status}" />
+                    </DockPanel>
+                    <ProgressBar Margin="0,8,0,0" Height="14" Minimum="0" Maximum="100"
+                                 IsIndeterminate="{Binding AiQueueProgress.IsIndeterminate}"
+                                 Value="{Binding AiQueueProgress.ProgressPercent}" />
+                    <TextBlock Margin="0,6,0,0" Style="{StaticResource MutedText}"
+                               Text="{Binding AiQueueProgress.Summary}" />
+                    <TextBlock Margin="0,2,0,0" Style="{StaticResource MutedText}"
+                               Text="{Binding AiQueueProgress.Detail}" />
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Column="2" Margin="12,0,0,0" Padding="12" CornerRadius="4"
+                    Background="#FFE8F3FF" BorderBrush="#FF9DC8F0" BorderThickness="1" VerticalAlignment="Stretch">
+                <TextBlock Width="230" VerticalAlignment="Center" TextWrapping="Wrap"
+                           Foreground="#FF164B7A" FontWeight="SemiBold"
+                           Text="分析更新は完了しています。AIチェックはバックグラウンドで継続中です。候補・保有の表示はAI完了を待ちません。" />
+            </Border>
+        </Grid>
+
+        <TextBlock Grid.Row="2" Margin="0,8" Style="{StaticResource MutedText}" Text="{Binding MockStatus}" />
+
+        <TabControl Grid.Row="3">
             <TabItem Header="候補">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
@@ -126,6 +179,15 @@
                             <DataGridTextColumn Width="115" Binding="{Binding PriceProfitAndLoss}" Header="価格損益" />
                             <DataGridTextColumn Width="135" Binding="{Binding NetReferenceProfitAndLoss}" Header="ネット参考損益" />
                             <DataGridTextColumn Width="175" Binding="{Binding ReconciliationStatus}" Header="要照合状態" />
+                            <DataGridTemplateColumn Width="155" Header="手動決済登録">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Padding="8,3" Click="ShowPositionRegistrationPreview"
+                                                Content="約定を手入力"
+                                                ToolTip="対象ポジションの決済約定を手入力します。価格・日時・株数・lot配分は自動入力しません。" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
                     <TextBlock Grid.Row="1" Margin="0,8,0,0" Style="{StaticResource MutedText}"
