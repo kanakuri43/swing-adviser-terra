@@ -82,9 +82,9 @@ Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\U
 
 ## Phase 7 — 日次更新オーケストレーション
 参照: [`product-spec.md`](./docs/product-spec.md) Daily update workflow
-- [ ] 11ステップの日次更新フロー（更新→point-in-time生成→テクニカル分析→Long/Short候補→保有再評価→保存→AIキュー投入）実装
-- [ ] `daily_update_runs`/進捗・成功/失敗件数の可視化実装
-- [ ] 1銘柄失敗時の継続動作、冪等性の確認
+- [x] 11ステップの日次更新フロー（更新→point-in-time生成→テクニカル分析→Long/Short候補→保有再評価→保存→AIキュー投入）実装
+- [x] `daily_update_runs`/進捗・成功/失敗件数の可視化実装
+- [x] 1銘柄失敗時の継続動作、冪等性の確認
 
 ## Phase 8 — UIモック確認②（更新進捗表示）
 参照: [`product-spec.md`](./docs/product-spec.md) Daily update workflow / UI/UX

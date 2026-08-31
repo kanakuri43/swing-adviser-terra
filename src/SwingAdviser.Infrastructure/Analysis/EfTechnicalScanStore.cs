@@ -51,11 +51,15 @@ public sealed class EfTechnicalScanStore : ITechnicalScanStore
         var actionHash = Hash(string.Join("\n", actions.Select(item => $"{item.EffectiveDate:yyyy-MM-dd}|{item.SourceEventId}|{item.CorporateActionId}")));
         var first = bars.FirstOrDefault()?.TradingDate ?? date; var last = bars.LastOrDefault()?.TradingDate ?? date;
         var manifestHash = Hash(JsonSerializer.Serialize(new { schema = "analysis-input-manifest-v1", instrumentId, date, analyzedAtUtc, first, last, count = bars.Length, priceHash, actionHash, selection = "pit-revision-v1" }));
-        var manifest = new AnalysisInputManifest { InstrumentId = instrumentId, EvaluationBarDate = date, AnalyzedAtUtc = analyzedAtUtc, FirstBarDate = first, LastBarDate = last, BarCount = bars.Length, PriceRevisionSetHash = priceHash, CorporateActionSetHash = actionHash, ManifestHash = manifestHash, CreatedAtUtc = analyzedAtUtc };
-        _context.AnalysisInputManifests.Add(manifest); await _context.SaveChangesAsync(cancellationToken);
-        _context.AddRange(bars.Select(item => new AnalysisInputManifestBar { ManifestId = manifest.ManifestId, TradingDate = item.TradingDate, DailyBarId = item.DailyBarId }));
-        _context.AddRange(actions.Select(item => new AnalysisInputManifestCorporateAction { ManifestId = manifest.ManifestId, CorporateActionId = item.CorporateActionId }));
-        await _context.SaveChangesAsync(cancellationToken);
+        var manifest = await _context.AnalysisInputManifests.SingleOrDefaultAsync(item => item.InstrumentId == instrumentId && item.EvaluationBarDate == date && item.AnalyzedAtUtc == analyzedAtUtc && item.ManifestHash == manifestHash, cancellationToken);
+        if (manifest is null)
+        {
+            manifest = new AnalysisInputManifest { InstrumentId = instrumentId, EvaluationBarDate = date, AnalyzedAtUtc = analyzedAtUtc, FirstBarDate = first, LastBarDate = last, BarCount = bars.Length, PriceRevisionSetHash = priceHash, CorporateActionSetHash = actionHash, ManifestHash = manifestHash, CreatedAtUtc = analyzedAtUtc };
+            _context.AnalysisInputManifests.Add(manifest); await _context.SaveChangesAsync(cancellationToken);
+            _context.AddRange(bars.Select(item => new AnalysisInputManifestBar { ManifestId = manifest.ManifestId, TradingDate = item.TradingDate, DailyBarId = item.DailyBarId }));
+            _context.AddRange(actions.Select(item => new AnalysisInputManifestCorporateAction { ManifestId = manifest.ManifestId, CorporateActionId = item.CorporateActionId }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }
         return new PointInTimeAnalysisSeries(manifest.ManifestId, instrumentId, date, analyzedAtUtc, manifestHash, priceHash, actionHash, adjusted, status, required);
     }
 

@@ -84,6 +84,27 @@ public class TechnicalAnalysisEngineTests
     }
 
     [Fact]
+    public async Task PointInTimeStore_ReusesAnIdenticalFrozenManifestOnRetry()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var analyzed = new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc);
+        var instrument = new Instrument { FirstObservedAtUtc = analyzed };
+        context.Instruments.Add(instrument); await context.SaveChangesAsync();
+        var bars = CreateBars(201, 100).Select(bar => new DailyBar { InstrumentId = instrument.InstrumentId, TradingDate = bar.TradingDate, Open = bar.Open, High = bar.High, Low = bar.Low, Close = bar.Close, Volume = bar.Volume, Source = "YahooFinanceChartApiV8", FetchedAtUtc = analyzed, Revision = 1, Status = "Final" });
+        context.DailyBars.AddRange(bars);
+        context.DailyBarHistoryCoverages.Add(new DailyBarHistoryCoverage { InstrumentId = instrument.InstrumentId, Source = "YahooFinanceChartApiV8", EarliestReturnedDate = new DateOnly(2025, 1, 1), LatestReturnedDate = new DateOnly(2025, 7, 20), FullHistoryConfirmed = true, ObservedAtUtc = analyzed, Revision = 1, Status = "Complete" });
+        await context.SaveChangesAsync();
+        var store = new EfTechnicalScanStore(context);
+
+        var first = await store.BuildSeriesAsync(instrument.InstrumentId, new DateOnly(2025, 7, 20), analyzed, 201, CancellationToken.None);
+        var second = await store.BuildSeriesAsync(instrument.InstrumentId, new DateOnly(2025, 7, 20), analyzed, 201, CancellationToken.None);
+
+        Assert.Equal(first.ManifestId, second.ManifestId);
+        Assert.Single(context.AnalysisInputManifests);
+    }
+
+    [Fact]
     public async Task ScanService_OrdersCodesAndContinuesAfterOneInstrumentFailure()
     {
         var store = new RecordingStore();
