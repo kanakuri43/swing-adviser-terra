@@ -102,9 +102,9 @@ Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\U
 
 ## Phase 10 — UIモック確認③（AIチェック状態・結果表示）
 参照: [`ai-analysis.md`](./docs/ai-analysis.md)、[`product-spec.md`](./docs/product-spec.md) UI/UX
-- [ ] AIチェック状態・結果表示画面（未実行/待機中/実行中/成功/失敗/timeout/情報不足/キャンセル/旧結果の区別、単件・複数選択操作を含む）をダミーデータで実装
-- [ ] AI Verdictと候補方向の整合/逆表現、`InsufficientInformation`と`Neutral`の非混同表現を実装
-- [ ] 上記をユーザーとレイアウト・誤操作防止の観点で確認する
+- [x] AIチェック状態・結果表示画面（未実行/待機中/実行中/成功/失敗/timeout/情報不足/キャンセル/旧結果の区別、単件・複数選択操作を含む）をダミーデータで実装
+- [x] AI Verdictと候補方向の整合/逆表現、`InsufficientInformation`と`Neutral`の非混同表現を実装
+- [x] 上記をユーザーとレイアウト・誤操作防止の観点で確認する
 
 ## Phase 11 — 統合・品質保証
 - [ ] Phase2〜9の結線後、代表的なE2Eシナリオ（候補抽出→AIチェック→建玉登録→保有再評価→決済登録）を手動で通す

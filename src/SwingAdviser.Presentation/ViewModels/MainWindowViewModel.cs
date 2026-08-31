@@ -3,7 +3,7 @@ using System.Collections.ObjectModel;
 namespace SwingAdviser.Presentation.ViewModels;
 
 /// <summary>
-/// Phase 4 and 8 layout-only data source. Production data access is deliberately deferred.
+/// Phase 4, 8, and 10 layout-only data source. Production data access is deliberately deferred.
 /// </summary>
 public sealed class MainWindowViewModel
 {
@@ -12,7 +12,7 @@ public sealed class MainWindowViewModel
     public string SafetyNotice =>
         "分析結果は参考情報です。注文・自動売買は行いません。約定は証券会社の通知を確認し、利用者が入力・確認した内容だけを保存します。";
 
-    public string MockStatus => "Phase 4・8 UIモック確認: レイアウト・情報量・誤操作防止を確認するための静的なダミーデータです。";
+    public string MockStatus => "Phase 4・8・10 UIモック確認: レイアウト・情報量・誤操作防止を確認するための静的なダミーデータです。AI結果は参考情報であり、注文・約定を生成しません。";
 
     public string CandidateCaption => "スコアは候補条件への一致度を表す参考情報であり、勝率や利益を保証するものではありません。";
 
@@ -34,7 +34,14 @@ public sealed class MainWindowViewModel
     [
         new("7203", "トヨタ自動車", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "82", "High", "EMA20 > EMA50、MACD上向き、出来高倍率 1.7", "未実行"),
         new("6758", "ソニーグループ", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "74", "Medium", "高値更新、MACDヒストグラム改善", "待機中"),
-        new("9101", "日本郵船", "Short", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "79", "High", "EMA20 < EMA50、出来高増加、下落トレンド", "情報不足"),
+        new("8035", "東京エレクトロン", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "77", "High", "出来高を伴う高値更新", "実行中"),
+        new("9101", "日本郵船", "Short", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "79", "High", "EMA20 < EMA50、出来高増加、下落トレンド", "成功", null, null, "Bearish", "候補方向と整合", "下落トレンドの継続を示す材料を確認しました。反転時のリスクも併記します。"),
+        new("9984", "ソフトバンクグループ", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "69", "Medium", "MACD改善、値動き大", "成功", null, null, "Neutral", "中立", "上昇・下落の材料が拮抗しており、市場見通しは中立です。"),
+        new("4063", "信越化学工業", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "71", "Medium", "EMA20回復を確認", "失敗", null, null, null, null, "AIチェックを完了できませんでした。テクニカル候補は引き続き表示します。"),
+        new("9983", "ファーストリテイリング", "Short", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "72", "Medium", "EMA20を下回り出来高増加", "timeout", null, null, null, null, "制限時間内にAIチェックが完了しませんでした。明示的に再試行できます。"),
+        new("6098", "リクルートホールディングス", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "68", "Low", "出来高増加、トレンド確認中", "情報不足", null, null, null, null, "確認可能な情報が不足しています。Neutral（中立）ではありません。"),
+        new("8604", "野村ホールディングス", "Short", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "70", "Medium", "戻り売り条件を確認", "キャンセル", null, null, null, null, "待機中のAIチェックを利用者が取り消しました。必要なら明示的に再試行できます。"),
+        new("6501", "日立製作所", "Long", "Entry", "2026-08-27", "candidate-scoring-engine-v1", "80", "High", "前分析時点の候補", "旧結果", null, null, "Bullish", "候補方向と整合", "以前の分析時点の結果です。現在の候補判断には使用せず、履歴として確認します。"),
     ];
 
     public ObservableCollection<ExcludedCandidateRow> ExcludedCandidates { get; } =
@@ -104,7 +111,36 @@ public sealed record CandidateRow(
     int? LatestAiAttemptId = null,
     string? AiVerdict = null,
     string? AiVerdictAlignment = null,
-    string? AiSummary = null);
+    string? AiSummary = null)
+{
+    public bool IsMock => !CandidateResultId.HasValue;
+    public bool CanQueueAiCheck => CandidateResultId.HasValue && AiStatus == "未実行";
+    public bool CanCancelAiCheck => LatestAiAttemptId.HasValue && AiStatus == "待機中";
+    public bool CanRetryAiCheck => LatestAiAttemptId.HasValue && AiStatus is "失敗" or "timeout" or "情報不足" or "キャンセル";
+    public bool CanChangeAiQueue => CanCancelAiCheck || CanRetryAiCheck;
+    public bool CanShowAiDetail => AiStatus is "成功" or "失敗" or "timeout" or "情報不足" or "キャンセル" or "旧結果";
+    public string AiQueueActionLabel => CanCancelAiCheck ? "取消" : CanRetryAiCheck ? "再試行" : "操作不可";
+    public string AiStatusDescription => AiStatus switch
+    {
+        "未実行" => "まだAIチェックを要求していません。",
+        "待機中" => "永続キューで実行待ちです。待機中に限り取消できます。",
+        "実行中" => "AIチェックを実行しています。重複投入や取消はできません。",
+        "成功" => "構造化されたAI結果を保存しました。Verdict は売買推奨ではありません。",
+        "失敗" => "AIチェックは失敗しました。テクニカル候補は無効になりません。",
+        "timeout" => "制限時間内に完了しませんでした。必要なら利用者が再試行します。",
+        "情報不足" => "Neutral（中立）ではなく、判断に必要な情報が不足した状態です。",
+        "キャンセル" => "待機中のAIチェックを取り消しました。",
+        "旧結果" => "以前の分析時点の結果です。現在の候補判断には用いません。",
+        _ => "AIチェックの状態を確認してください。",
+    };
+
+    public string AiOperationHint => IsMock
+        ? "UIモックでは操作しません。実データの候補が表示されると、状態に応じて操作できます。"
+        : CanQueueAiCheck ? "AIチェックをキューへ追加します。"
+        : CanCancelAiCheck ? "待機中のAIチェックを取り消します。"
+        : CanRetryAiCheck ? "過去の試行を上書きせず、新しい試行として再実行します。"
+        : "この状態ではキュー操作はできません。";
+}
 
 public sealed record UpdateProgressRow(
     string Status,

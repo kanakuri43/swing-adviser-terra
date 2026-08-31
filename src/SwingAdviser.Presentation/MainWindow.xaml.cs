@@ -24,38 +24,54 @@ public partial class MainWindow
 
     private async void QueueCandidateAiCheck(object sender, System.Windows.RoutedEventArgs e)
     {
-        if ((sender as System.Windows.FrameworkElement)?.DataContext is not ViewModels.CandidateRow { CandidateResultId: int candidateId }) return;
-        await _aiQueue.EnqueueUserAsync([candidateId]);
-        _ = Task.Run(() => _aiQueue.ProcessAvailableAsync());
-        await _viewModel.ReloadAiChecksAsync(_aiOverview);
+        if ((sender as System.Windows.FrameworkElement)?.DataContext is not ViewModels.CandidateRow candidate) return;
+        await QueueAiChecksAsync([candidate]);
     }
 
     private async void QueueSelectedCandidateAiChecks(object sender, System.Windows.RoutedEventArgs e)
     {
-        var ids = CandidateGrid.SelectedItems.OfType<ViewModels.CandidateRow>().Where(candidate => candidate.CandidateResultId.HasValue).Select(candidate => candidate.CandidateResultId!.Value).ToArray();
-        if (ids.Length == 0)
-        {
-            System.Windows.MessageBox.Show(this, "AIチェックする候補を選択してください。", "AIチェック", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
-            return;
-        }
-        await _aiQueue.EnqueueUserAsync(ids);
-        _ = Task.Run(() => _aiQueue.ProcessAvailableAsync());
-        await _viewModel.ReloadAiChecksAsync(_aiOverview);
+        await QueueAiChecksAsync(CandidateGrid.SelectedItems.OfType<ViewModels.CandidateRow>());
     }
 
     private async void CancelOrRetryAiCheck(object sender, System.Windows.RoutedEventArgs e)
     {
         if ((sender as System.Windows.FrameworkElement)?.DataContext is not ViewModels.CandidateRow { LatestAiAttemptId: int attemptId } candidate) return;
-        if (candidate.AiStatus == "待機中") await _aiQueue.CancelQueuedAsync(attemptId);
-        else if (candidate.AiStatus is "失敗" or "timeout" or "キャンセル" or "情報不足") { await _aiQueue.RetryAsync(attemptId); _ = Task.Run(() => _aiQueue.ProcessAvailableAsync()); }
+        if (candidate.CanCancelAiCheck) await _aiQueue.CancelQueuedAsync(attemptId);
+        else if (candidate.CanRetryAiCheck) { await _aiQueue.RetryAsync(attemptId); _ = Task.Run(() => _aiQueue.ProcessAvailableAsync()); }
         await _viewModel.ReloadAiChecksAsync(_aiOverview);
     }
 
     private void ShowAiCheckDetail(object sender, System.Windows.RoutedEventArgs e)
     {
         if ((sender as System.Windows.FrameworkElement)?.DataContext is not ViewModels.CandidateRow candidate) return;
-        var text = candidate.AiStatus == "情報不足" ? "AIは情報不足です。Neutral（中立）とは異なります。\n\n" + (candidate.AiSummary ?? string.Empty) : $"Verdict: {candidate.AiVerdict ?? "未取得"}\n{candidate.AiVerdictAlignment ?? string.Empty}\n\n{candidate.AiSummary ?? "結果はまだありません。"}";
+        var text = candidate.AiStatus == "情報不足"
+            ? "AIは情報不足です。Neutral（中立）とは異なります。\n\n" + (candidate.AiSummary ?? string.Empty)
+            : candidate.AiStatus == "旧結果"
+                ? "これは以前の分析時点の結果です。現在の候補判断には使用しません。\n\n" + (candidate.AiSummary ?? string.Empty)
+                : $"AI状態: {candidate.AiStatus}\nVerdict: {candidate.AiVerdict ?? "未取得"}\n{candidate.AiVerdictAlignment ?? string.Empty}\n\n{candidate.AiSummary ?? candidate.AiStatusDescription}";
         System.Windows.MessageBox.Show(this, text + "\n\nAI結果は判断支援情報であり、注文・約定を生成しません。", "AIチェック結果", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+    }
+
+    private async Task QueueAiChecksAsync(IEnumerable<ViewModels.CandidateRow> selected)
+    {
+        var ids = selected.Where(candidate => candidate.CanQueueAiCheck).Select(candidate => candidate.CandidateResultId!.Value).Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            System.Windows.MessageBox.Show(this, "AIチェックする未実行の実データ候補を選択してください。実行中・成功・旧結果は重複投入しません。", "AIチェック", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            return;
+        }
+
+        var result = await _aiQueue.EnqueueUserAsync(ids);
+        if (result.QueuedCount == 0)
+        {
+            System.Windows.MessageBox.Show(this, "選択した候補はすでに実行中または待機中のため、AIチェックを追加しませんでした。", "AIチェック", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+        }
+        else
+        {
+            _ = Task.Run(() => _aiQueue.ProcessAvailableAsync());
+        }
+
+        await _viewModel.ReloadAiChecksAsync(_aiOverview);
     }
 
     private void ShowCandidateRegistrationPreview(object sender, System.Windows.RoutedEventArgs e)

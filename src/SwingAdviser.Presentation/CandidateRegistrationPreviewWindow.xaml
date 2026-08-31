@@ -29,7 +29,15 @@
         <Grid Grid.Row="3" Margin="0,10,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="155" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
             <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="約定日時（JST）" />
-            <TextBox Grid.Column="1" Padding="6,4" Text="{Binding ExecutedAtText, UpdateSourceTrigger=PropertyChanged}" ToolTip="例: 2026-08-31 10:15 +09:00" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <mah:DateTimePicker Width="310"
+                                    SelectedDateTime="{Binding ExecutedAt, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                    Culture="ja-JP"
+                                    HoursItemStringFormat="{}{0:00}"
+                                    MinutesItemStringFormat="{}{0:00}"
+                                    ToolTip="日付、時、分を選択してください。約定日時はJSTとして保存します。" />
+                <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Text="JST (+09:00)" />
+            </StackPanel>
         </Grid>
         <Grid Grid.Row="4" Margin="0,10,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="155" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>

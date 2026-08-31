@@ -48,7 +48,7 @@ public sealed class CandidateRegistrationViewModel : ObservableObject
     private readonly IInstrumentLookup _instrumentLookup;
     private string _code;
     private string _side;
-    private string _executedAtText = string.Empty;
+    private DateTime? _executedAt;
     private string _priceText = string.Empty;
     private string _quantityText = string.Empty;
     private string _strategyKey;
@@ -80,7 +80,7 @@ public sealed class CandidateRegistrationViewModel : ObservableObject
 
     public string Code { get => _code; set => Set(ref _code, value); }
     public string Side { get => _side; set => Set(ref _side, value); }
-    public string ExecutedAtText { get => _executedAtText; set => Set(ref _executedAtText, value); }
+    public DateTime? ExecutedAt { get => _executedAt; set => Set(ref _executedAt, value); }
     public string PriceText { get => _priceText; set => Set(ref _priceText, value); }
     public string QuantityText { get => _quantityText; set => Set(ref _quantityText, value); }
     public string StrategyKey { get => _strategyKey; set => Set(ref _strategyKey, value); }
@@ -132,12 +132,14 @@ public sealed class CandidateRegistrationViewModel : ObservableObject
         executedAt = default;
         price = default;
         quantity = default;
-        if (!DateTimeOffset.TryParseExact(ExecutedAtText, ["yyyy-MM-dd HH:mm zzz", "yyyy-MM-dd H:mm zzz"], CultureInfo.InvariantCulture, DateTimeStyles.None, out executedAt) || executedAt.Offset != TimeSpan.FromHours(9) ||
+        if (!ExecutedAt.HasValue ||
             !decimal.TryParse(PriceText, NumberStyles.Number, CultureInfo.InvariantCulture, out price) || !int.TryParse(QuantityText, NumberStyles.Integer, CultureInfo.InvariantCulture, out quantity) || price <= 0 || quantity <= 0)
         {
-            ValidationMessage = "約定日時（+09:00 を含む）、価格、株数を利用者が正しく入力してください。";
+            ValidationMessage = "約定日時（日付・時・分）、価格、株数を利用者が正しく選択・入力してください。約定日時はJST（+09:00）として保存します。";
             return false;
         }
+        var minutePrecision = new DateTime(ExecutedAt.Value.Year, ExecutedAt.Value.Month, ExecutedAt.Value.Day, ExecutedAt.Value.Hour, ExecutedAt.Value.Minute, 0, DateTimeKind.Unspecified);
+        executedAt = new DateTimeOffset(minutePrecision, TimeSpan.FromHours(9));
         return true;
     }
 }
