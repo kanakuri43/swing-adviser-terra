@@ -67,12 +67,12 @@ Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\U
 
 ## Phase 5 — リスク管理エンジン
 参照: [`risk-management.md`](./docs/risk-management.md)
-- [ ] `initial-risk-plan-factory-v1`（risk basis・初期stop/target算出）実装
-- [ ] `holding-risk-evaluation-v1`（lot単位判定→position集約、`Hold`のfail-closed運用）実装
-- [ ] `PartialExitBreakevenPlanFactory`（部分利確後の建値ストップ遷移）実装
-- [ ] `MarginCostLedger`（買方金利・貸株料・逆日歩・配当金相当額、Estimate/Confirmed区別）実装
-- [ ] 返済期限集約・警告閾値（30/10/5/1営業日、設定化）実装
-- [ ] 損切/利確/HOLD境界値、複数lot集約、期限・コスト欠損状態のテスト
+- [x] `initial-risk-plan-factory-v1`（risk basis・初期stop/target算出）実装
+- [x] `holding-risk-evaluation-v1`（lot単位判定→position集約、`Hold`のfail-closed運用）実装
+- [x] `PartialExitBreakevenPlanFactory`（部分利確後の建値ストップ遷移）実装
+- [x] `MarginCostLedger`（買方金利・貸株料・逆日歩・配当金相当額、Estimate/Confirmed区別）実装
+- [x] 返済期限集約・警告閾値（30/10/5/1営業日、設定化）実装
+- [x] 損切/利確/HOLD境界値、複数lot集約、期限・コスト欠損状態のテスト
 
 ## Phase 6 — ポジション・約定管理（手動登録フロー）
 参照: [`product-spec.md`](./docs/product-spec.md) Trade records、`AGENTS.md` Non-negotiable rules
