@@ -21,7 +21,7 @@ Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\U
 - [x] `RuntimeDatabasePathResolver`（`docs/database-schema.md` Runtime database location）
 - [x] 設計時 DbContext ファクトリ（`dotnet ef` 用）
 - [x] 空の `InitialCreate` マイグレーション
-- [x] Prism + MahApps.Metro の最小 WPF シェル
+- [x] 素のWPF（Prism/DIフレームワーク不使用）+ MahApps.Metro の最小 WPF シェル
 - [x] `dotnet build` / `dotnet test` 成功（3テスト green）
 
 ## Phase 1 — DBスキーマ実装
@@ -112,13 +112,24 @@ Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\U
 - [x] ログ・エラー分類（HTTP error/rate limit/timeout/invalid data/CLI failure/SQLite lock/cancellation）の網羅性レビュー
 - [x] Non-negotiable rules（自動売買化していないか等）の最終レビュー
 
-## Phase 12 — 実運用移行準備
+## Phase 12 — 実データ画面結線（Phase 11未完了分の補完）
+現状、起動時に実行しているのはDB接続・AIキュー復旧のみで、外部データ取得→日次更新→スキャンは起動していない。候補の実データ表示も `candidate_results` に既存データがある場合のみモックを置換する実装にとどまり、日次更新を画面から実行して結果を各タブへ反映する結線が未実装。これはPhase 11の完了範囲から漏れていたため、Phase 12として実装し、実運用移行準備は後続フェーズへ繰り下げる。
+
+- [ ] 日次更新（Phase 7のオーケストレーション）を画面から起動できるトリガーの実装（外部データ取得→point-in-time生成→テクニカル分析→スキャン→候補生成→保有再評価→保存→AIキュー投入）
+- [ ] 更新進捗表示（Phase 8のUIモック）への実データ結線（`daily_update_runs`の進捗・成功/失敗件数）
+- [ ] 「候補」タブへのスキャン/候補結果の実データ結線（更新実行後に`candidate_results`が反映されること）
+- [ ] 「保有」タブへの保有再評価結果の実データ結線（`position_holding_evaluations`等）
+- [ ] 株価取得結果（`daily_bars`等）の画面反映確認
+- [ ] AIキューへの実投入・実行確認（日次更新から`AiCheckQueueService.EnqueueAsync`経由でCodex CLIが実際に実行され、結果がAIチェック画面に反映されること。`AiCheckOptions.EnableAutomaticChecks`とCLI実行パス設定を含む）
+- [ ] E2E確認: アプリ起動→日次更新実行→候補（AI状態/AI Verdict列を含む）/保有/更新進捗の各タブに実データが表示されること
+
+## Phase 13 — 実運用移行準備
 - [ ] 実運用DB配置（EXEと同ディレクトリの`swing-adviser.db`固定、書き込み不可時の明示エラー）の実機確認
 - [ ] 設定ファイル（APIキー参照・Codex CLIパス等）の秘密情報非コミット確認
-- [ ] 配布物（自己完結exe等）の確定・インストール手順整備
+- [ ] ~~配布物（自己完結exe等）の確定・インストール手順整備~~（このPC専用運用のため対象外。ビルド済みexeをこのPC上でそのまま実行する運用とする）
 - [ ] バックアップ/リストア手順（SQLiteファイルコピー等）の確立
 - [ ] 小規模・期間限定の試験運用
 
-## Phase 13 — 実運用開始後
+## Phase 14 — 実運用開始後
 - [ ] JPXファイル形式変更・Yahoo非公式API変更等への追従方針の運用ドキュメント化
 - [ ] 障害対応・問い合わせ対応手順の整備
