@@ -52,6 +52,23 @@ public class ManualPositionWorkflowTests
     }
 
     [Fact]
+    public async Task OpenWithoutUserConfirmation_IsRejectedBeforeAnyPositionOrExecutionIsSaved()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var instrument = await AddInstrumentAsync(context);
+        var service = new ManualTradeRegistrationService(new EfManualTradeRegistrationStore(context));
+        var executedAt = new DateTimeOffset(2026, 8, 31, 10, 15, 0, TimeSpan.FromHours(9));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RegisterOpenAsync(
+            new ManualOpenTradeRequest(instrument.InstrumentId, "Long", executedAt, 100m, 100, "JPY", "manual-v1", "v1", UserConfirmed: false)));
+
+        Assert.Empty(await context.Positions.ToListAsync());
+        Assert.Empty(await context.TradeExecutions.ToListAsync());
+        Assert.Empty(await context.MarginLots.ToListAsync());
+    }
+
+    [Fact]
     public async Task SplitCreatesSeparateAdjustmentAndPreservesOriginalExecution()
     {
         using var connection = OpenMigratedConnection();

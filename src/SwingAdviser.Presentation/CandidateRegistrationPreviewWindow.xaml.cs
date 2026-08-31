@@ -53,6 +53,7 @@ public sealed class CandidateRegistrationViewModel : ObservableObject
     private string _quantityText = string.Empty;
     private string _strategyKey;
     private string _strategyVersion = "v1";
+    private readonly int? _candidateResultId;
     private string _closePositionIdText = string.Empty;
     private readonly bool _isPositionCloseRegistration;
     private bool _userConfirmed;
@@ -65,6 +66,7 @@ public sealed class CandidateRegistrationViewModel : ObservableObject
         _code = candidate.Code;
         _side = candidate.Direction;
         _strategyKey = candidate.Strategy;
+        _candidateResultId = candidate.CandidateResultId;
     }
 
     public CandidateRegistrationViewModel(PositionRow position, ManualTradeRegistrationService registrationService, IInstrumentLookup instrumentLookup)
@@ -120,7 +122,7 @@ public sealed class CandidateRegistrationViewModel : ObservableObject
         if (string.IsNullOrWhiteSpace(ClosePositionIdText))
         {
             var instrumentId = await _instrumentLookup.FindCurrentInstrumentIdByCodeAsync(Code) ?? throw new InvalidOperationException("銘柄コードを現在の銘柄マスタで確認できません。更新後に再試行してください。");
-            await _registrationService.RegisterOpenAsync(new ManualOpenTradeRequest(instrumentId, Side, executedAt, price, quantity, "JPY", StrategyKey, StrategyVersion, UserConfirmed: UserConfirmed));
+            await _registrationService.RegisterOpenAsync(new ManualOpenTradeRequest(instrumentId, Side, executedAt, price, quantity, "JPY", StrategyKey, StrategyVersion, CandidateResultId: _candidateResultId, UserConfirmed: UserConfirmed));
             return;
         }
         var allocations = Allocations.Select(draft => new ManualLotAllocationInput(int.Parse(draft.MarginLotIdText, CultureInfo.InvariantCulture), decimal.Parse(draft.QuantityText, CultureInfo.InvariantCulture))).ToArray();

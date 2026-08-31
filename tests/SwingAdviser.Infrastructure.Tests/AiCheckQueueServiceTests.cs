@@ -47,6 +47,71 @@ public class AiCheckQueueServiceTests
         }
     }
 
+    [Fact]
+    public async Task CliExecutorException_IsRecordedAsTerminalFailureInsteadOfLeavingAttemptRunning()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"swing-adviser-ai-test-{Guid.NewGuid():N}.db");
+        var connectionString = $"Data Source={databasePath}";
+        try
+        {
+            await using (var migrationContext = CreateContext(connectionString)) await migrationContext.Database.MigrateAsync();
+            int candidateId;
+            await using (var seed = CreateContext(connectionString)) candidateId = await SeedCandidateAsync(seed);
+            var options = new AiCheckOptions("codex", null, null, TimeSpan.FromSeconds(5), [], MaximumConcurrency: 2);
+            var service = new AiCheckQueueService(() => CreateContext(connectionString), new ThrowingExecutor(), options);
+
+            await service.EnqueueUserAsync([candidateId], CancellationToken.None);
+            await WaitUntilAsync(async () =>
+            {
+                await using var check = CreateContext(connectionString);
+                return await check.AiCheckAttempts.AnyAsync(item => item.Status == "Failed");
+            });
+
+            await using var assertion = CreateContext(connectionString);
+            var attempt = await assertion.AiCheckAttempts.SingleAsync();
+            Assert.Equal("Failed", attempt.Status);
+            Assert.Equal("CliExecutionFailure", attempt.ErrorKind);
+            Assert.NotNull(attempt.CompletedAtUtc);
+            Assert.Equal("The AI executor raised an exception; inspect the application diagnostics for details.", attempt.SanitizedStderr);
+        }
+        finally
+        {
+            try { if (File.Exists(databasePath)) File.Delete(databasePath); } catch (IOException) { }
+        }
+    }
+
+    [Fact]
+    public async Task CancelledCliResponse_IsRecordedAsCancelledTerminalAttempt()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"swing-adviser-ai-test-{Guid.NewGuid():N}.db");
+        var connectionString = $"Data Source={databasePath}";
+        try
+        {
+            await using (var migrationContext = CreateContext(connectionString)) await migrationContext.Database.MigrateAsync();
+            int candidateId;
+            await using (var seed = CreateContext(connectionString)) candidateId = await SeedCandidateAsync(seed);
+            var options = new AiCheckOptions("codex", null, null, TimeSpan.FromSeconds(5), [], MaximumConcurrency: 2);
+            var service = new AiCheckQueueService(() => CreateContext(connectionString), new CancelledExecutor(), options);
+
+            await service.EnqueueUserAsync([candidateId], CancellationToken.None);
+            await WaitUntilAsync(async () =>
+            {
+                await using var check = CreateContext(connectionString);
+                return await check.AiCheckAttempts.AnyAsync(item => item.Status == "Cancelled");
+            });
+
+            await using var assertion = CreateContext(connectionString);
+            var attempt = await assertion.AiCheckAttempts.SingleAsync();
+            Assert.Equal("Cancelled", attempt.Status);
+            Assert.Equal("Cancelled", attempt.ErrorKind);
+            Assert.NotNull(attempt.CompletedAtUtc);
+        }
+        finally
+        {
+            try { if (File.Exists(databasePath)) File.Delete(databasePath); } catch (IOException) { }
+        }
+    }
+
     private static async Task<int> SeedCandidateAsync(SwingAdviserDbContext context)
     {
         var timestamp = new DateTime(2026, 8, 31, 1, 0, 0, DateTimeKind.Utc);
@@ -72,4 +137,6 @@ public class AiCheckQueueServiceTests
 
     private static SwingAdviserDbContext CreateContext(string connectionString) => new(new DbContextOptionsBuilder<SwingAdviserDbContext>().UseSqlite(connectionString).UseSnakeCaseNamingConvention().Options);
     private sealed class FailedExecutor : IAiCliExecutor { public Task<AiCliResponse> ExecuteAsync(AiCliRequest request, CancellationToken cancellationToken) => Task.FromResult(new AiCliResponse("not-json", "simulated failure", 9, AiCliCompletion.Completed)); }
+    private sealed class ThrowingExecutor : IAiCliExecutor { public Task<AiCliResponse> ExecuteAsync(AiCliRequest request, CancellationToken cancellationToken) => throw new InvalidOperationException("simulated executor exception"); }
+    private sealed class CancelledExecutor : IAiCliExecutor { public Task<AiCliResponse> ExecuteAsync(AiCliRequest request, CancellationToken cancellationToken) => Task.FromResult(new AiCliResponse(string.Empty, string.Empty, null, AiCliCompletion.Cancelled)); }
 }

@@ -107,10 +107,10 @@ Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\U
 - [x] 上記をユーザーとレイアウト・誤操作防止の観点で確認する
 
 ## Phase 11 — 統合・品質保証
-- [ ] Phase2〜9の結線後、代表的なE2Eシナリオ（候補抽出→AIチェック→建玉登録→保有再評価→決済登録）を手動で通す
-- [ ] `dotnet build`/`dotnet test` が全体で green であることを確認
-- [ ] ログ・エラー分類（HTTP error/rate limit/timeout/invalid data/CLI failure/SQLite lock/cancellation）の網羅性レビュー
-- [ ] Non-negotiable rules（自動売買化していないか等）の最終レビュー
+- [x] Phase2〜9の結線後、代表的なE2Eシナリオ（候補抽出→AIチェック→建玉登録→保有再評価→決済登録）を手動で通す
+- [x] `dotnet build`/`dotnet test` が全体で green であることを確認
+- [x] ログ・エラー分類（HTTP error/rate limit/timeout/invalid data/CLI failure/SQLite lock/cancellation）の網羅性レビュー
+- [x] Non-negotiable rules（自動売買化していないか等）の最終レビュー
 
 ## Phase 12 — 実運用移行準備
 - [ ] 実運用DB配置（EXEと同ディレクトリの`swing-adviser.db`固定、書き込み不可時の明示エラー）の実機確認

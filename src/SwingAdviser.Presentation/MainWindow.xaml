@@ -137,7 +137,8 @@
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <Button Padding="8,3" Click="ShowCandidateRegistrationPreview"
-                                        Content="約定を手入力" ToolTip="候補は銘柄・方向の入力補助だけに使います。" />
+                                        Content="約定を手入力" IsEnabled="{Binding CanRegisterManualExecution}"
+                                        ToolTip="{Binding ManualRegistrationHint}" />
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>

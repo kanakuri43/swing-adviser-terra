@@ -115,6 +115,7 @@ public sealed record CandidateRow(
 {
     public bool IsMock => !CandidateResultId.HasValue;
     public bool CanQueueAiCheck => CandidateResultId.HasValue && AiStatus == "未実行";
+    public bool CanRegisterManualExecution => CandidateResultId.HasValue;
     public bool CanCancelAiCheck => LatestAiAttemptId.HasValue && AiStatus == "待機中";
     public bool CanRetryAiCheck => LatestAiAttemptId.HasValue && AiStatus is "失敗" or "timeout" or "情報不足" or "キャンセル";
     public bool CanChangeAiQueue => CanCancelAiCheck || CanRetryAiCheck;
@@ -140,6 +141,10 @@ public sealed record CandidateRow(
         : CanCancelAiCheck ? "待機中のAIチェックを取り消します。"
         : CanRetryAiCheck ? "過去の試行を上書きせず、新しい試行として再実行します。"
         : "この状態ではキュー操作はできません。";
+
+    public string ManualRegistrationHint => CanRegisterManualExecution
+        ? "候補は銘柄・方向の入力補助だけに使います。"
+        : "UIモックのダミー候補から約定を登録することはできません。";
 }
 
 public sealed record UpdateProgressRow(
