@@ -121,7 +121,7 @@ Phase 4 のモックでは、参考デザインとして別リポジトリ `C:\U
 - [x] 「保有」タブへの保有再評価結果の実データ結線（`position_holding_evaluations`等）
 - [x] 株価取得結果（`daily_bars`等）の画面反映確認
 - [x] AIキューへの実投入・実行確認（日次更新から`AiCheckQueueService.EnqueueAsync`経由でCodex CLIが実際に実行され、結果がAIチェック画面に反映されること。`AiCheckOptions.EnableAutomaticChecks`とCLI実行パス設定を含む）— 実CLIの隔離キューで`Succeeded`/`Neutral`結果の永続化まで確認済み
-- [ ] E2E確認: アプリ起動→日次更新実行→候補（AI状態/AI Verdict列を含む）/保有/更新進捗の各タブに実データが表示されること
+- [x] E2E確認: アプリ起動→日次更新実行→候補（AI状態/AI Verdict列を含む）/保有/更新進捗の各タブに実データが表示されること — 2026-09-02 JSTに実機確認。保有建玉0件のため保有一覧は空表示
 
 ## Phase 13 — 実運用移行準備
 - [ ] 実運用DB配置（EXEと同ディレクトリの`swing-adviser.db`固定、書き込み不可時の明示エラー）の実機確認
