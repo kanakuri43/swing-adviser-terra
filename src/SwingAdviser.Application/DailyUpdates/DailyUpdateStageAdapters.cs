@@ -101,7 +101,14 @@ public sealed class TechnicalAnalysisDailyUpdateStage(AllInstrumentScanService s
 
     public async Task<DailyUpdateStepResult> ExecuteAsync(DailyUpdateContext context, CancellationToken cancellationToken)
     {
-        var result = await scanService.RunAsync(new TechnicalScanRequest(context.Request.EvaluationBarDate, context.AnalyzedAtUtc, context.DailyUpdateRunId, context.Request.UniverseDefinitionHash, parameters), null, cancellationToken);
+        var progress = new Progress<TechnicalScanProgress>(item => context.ReportStageProgress(
+            $"ステップ 5/11: テクニカル分析中（{item.Completed:n0}/{item.Total:n0}銘柄、候補 {item.CandidateCount:n0}件、失敗 {item.FailedCount:n0}件）。中止できます。",
+            item.Completed,
+            item.Total));
+        var result = await scanService.RunAsync(
+            new TechnicalScanRequest(context.Request.EvaluationBarDate, context.AnalyzedAtUtc, context.DailyUpdateRunId, context.Request.UniverseDefinitionHash, parameters),
+            progress,
+            cancellationToken);
         state.ScanResult = result;
         return new DailyUpdateStepResult(result.SucceededCount, result.FailedCount, $"PIT inputs, indicators, and candidate records were persisted in scan run {result.ScanRunId}.");
     }

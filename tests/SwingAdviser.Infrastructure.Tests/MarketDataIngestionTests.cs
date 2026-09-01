@@ -96,6 +96,66 @@ public class MarketDataIngestionTests
     }
 
     [Fact]
+    public async Task Repository_RetainsFullHistoryConfirmationWhenImportingAnIncrementalCorrectionWindow()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var observedAt = new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc);
+        var instrument = new Instrument { FirstObservedAtUtc = observedAt };
+        context.Instruments.Add(instrument);
+        await context.SaveChangesAsync();
+        var repository = new MarketDataRepository(context);
+
+        await repository.ImportYahooChartAsync(instrument.InstrumentId,
+            new YahooChartSourceSnapshot([new YahooDailyBarSourceRecord(new DateOnly(2000, 1, 4), 100m, 110m, 90m, 105m, 1000, null)], [], FullHistoryConfirmed: true),
+            observedAt, CancellationToken.None);
+        await repository.ImportYahooChartAsync(instrument.InstrumentId,
+            new YahooChartSourceSnapshot([new YahooDailyBarSourceRecord(new DateOnly(2026, 8, 31), 200m, 210m, 190m, 205m, 2000, null)], [], FullHistoryConfirmed: false),
+            observedAt.AddDays(1), CancellationToken.None);
+
+        var coverage = await context.DailyBarHistoryCoverages.OrderByDescending(entity => entity.Revision).FirstAsync();
+        Assert.True(coverage.FullHistoryConfirmed);
+        Assert.Equal("Complete", coverage.Status);
+        Assert.Equal(new DateOnly(2000, 1, 4), coverage.EarliestReturnedDate);
+        Assert.Equal(new DateOnly(2026, 8, 31), coverage.LatestReturnedDate);
+    }
+
+    [Fact]
+    public async Task RefreshPlanning_UsesEvaluationDateCacheAndFetchesOnlyMissingChartsFromFiniteWindow()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var requestedAt = new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc);
+        var covered = new Instrument { FirstObservedAtUtc = requestedAt };
+        var missing = new Instrument { FirstObservedAtUtc = requestedAt };
+        context.AddRange(covered, missing);
+        await context.SaveChangesAsync();
+        context.DailyBars.Add(new DailyBar
+        {
+            InstrumentId = covered.InstrumentId, TradingDate = new DateOnly(2026, 8, 28), Open = 100m, High = 101m, Low = 99m, Close = 100m, Volume = 1000,
+            Source = "YahooFinanceChartApiV8", FetchedAtUtc = requestedAt, Revision = 1, Status = "Final",
+        });
+        context.DailyBars.Add(new DailyBar
+        {
+            InstrumentId = covered.InstrumentId, TradingDate = new DateOnly(2021, 8, 30), Open = 100m, High = 101m, Low = 99m, Close = 100m, Volume = 1000,
+            Source = "YahooFinanceChartApiV8", FetchedAtUtc = requestedAt, Revision = 1, Status = "Final",
+        });
+        await context.SaveChangesAsync();
+
+        var windowStartUtc = new DateTime(2021, 8, 28, 0, 0, 0, DateTimeKind.Utc);
+
+        var targets = await new MarketDataRepository(context).CreateRefreshTargetsAsync(
+            [(covered.InstrumentId, "7203"), (missing.InstrumentId, "6758")], new DateOnly(2026, 8, 28), requestedAt, windowStartUtc, CancellationToken.None);
+
+        Assert.False(targets[0].RefreshChart);
+        Assert.Equal(windowStartUtc, targets[0].ChartPeriodStartUtc);
+        Assert.False(targets[0].RefreshFundamentals);
+        Assert.True(targets[1].RefreshChart);
+        Assert.Equal(windowStartUtc, targets[1].ChartPeriodStartUtc);
+        Assert.False(targets[1].RefreshFundamentals);
+    }
+
+    [Fact]
     public async Task Repository_AppendsOnlyChangedMasterAndMarginRevisions()
     {
         using var connection = OpenMigratedConnection();
@@ -162,7 +222,9 @@ public class MarketDataIngestionTests
             new SelectiveYahooSource(),
             new FakeTimeProvider(observedAt));
 
-        var results = await service.RefreshInstrumentsAsync(null, new[] { (failed.InstrumentId, "BAD"), (succeeded.InstrumentId, "7203") }, CancellationToken.None);
+        var progress = new List<InstrumentRefreshProgress>();
+        var results = await service.RefreshInstrumentsAsync(null, new[] { (failed.InstrumentId, "BAD"), (succeeded.InstrumentId, "7203") }, CancellationToken.None,
+            new InlineProgress<InstrumentRefreshProgress>(progress.Add));
 
         Assert.Equal(2, results.Count);
         Assert.Equal(0, results[0].ChartRecordsImported);
@@ -170,6 +232,30 @@ public class MarketDataIngestionTests
         Assert.Equal("RateLimit", context.ExternalFetchResults.Single(result => result.InstrumentId == failed.InstrumentId && result.SourceKind == "YahooFinanceChartApiV8").ErrorKind);
         Assert.Single(context.DailyBars);
         Assert.Equal(2, context.FundamentalDataSnapshots.Count());
+        Assert.Collection(progress,
+            first => Assert.Equal((1, 2, "BAD"), (first.CompletedCount, first.TotalCount, first.LastCompletedCode)),
+            second => Assert.Equal((2, 2, "7203"), (second.CompletedCount, second.TotalCount, second.LastCompletedCode)));
+    }
+
+    [Fact]
+    public async Task Ingestion_FetchesBoundedInstrumentBatchesConcurrentlyWhileKeepingPersistenceSafe()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var observedAt = new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc);
+        var instruments = Enumerable.Range(0, 4).Select(_ => new Instrument { FirstObservedAtUtc = observedAt }).ToArray();
+        context.Instruments.AddRange(instruments);
+        await context.SaveChangesAsync();
+        var source = new ParallelObservedYahooSource();
+        var service = new MarketDataIngestionService(new MarketDataRepository(context), new StaticListedIssuesSource(), new StaticMarginIssuesSource(), source,
+            new FakeTimeProvider(observedAt), maxConcurrentInstrumentFetches: 2);
+
+        var results = await service.RefreshInstrumentsAsync(null, instruments.Select((instrument, index) => (instrument.InstrumentId, $"{7200 + index}")), CancellationToken.None);
+
+        Assert.Equal(4, results.Count);
+        Assert.InRange(source.PeakChartRequests, 2, 2);
+        Assert.Equal(4, context.DailyBars.Count());
+        Assert.Empty(context.ChangeTracker.Entries());
     }
 
     [Fact]
@@ -225,6 +311,11 @@ public class MarketDataIngestionTests
             => Task.FromResult(responseFactory(request));
     }
 
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
+    }
+
     private sealed class TimeoutHandler : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -254,6 +345,36 @@ public class MarketDataIngestionTests
             return Task.FromResult(new YahooChartSourceSnapshot(
                 new[] { new YahooDailyBarSourceRecord(new DateOnly(2026, 8, 28), 100m, 110m, 90m, 105m, 1000, null) },
                 Array.Empty<CorporateActionSourceRecord>()));
+        }
+
+        public Task<FundamentalDataSourceRecord> FetchFundamentalsAsync(string code, CancellationToken cancellationToken)
+            => Task.FromResult(new FundamentalDataSourceRecord(null, null, null, null, null));
+    }
+
+    private sealed class ParallelObservedYahooSource : IYahooFinanceSource
+    {
+        private int _activeChartRequests;
+        private int _peakChartRequests;
+
+        public int PeakChartRequests => _peakChartRequests;
+
+        public async Task<YahooChartSourceSnapshot> FetchChartAsync(string code, CancellationToken cancellationToken)
+        {
+            var active = Interlocked.Increment(ref _activeChartRequests);
+            while (true)
+            {
+                var currentPeak = _peakChartRequests;
+                if (currentPeak >= active || Interlocked.CompareExchange(ref _peakChartRequests, active, currentPeak) == currentPeak) break;
+            }
+            try
+            {
+                await Task.Delay(50, cancellationToken);
+                return new YahooChartSourceSnapshot([new YahooDailyBarSourceRecord(new DateOnly(2026, 8, 28), 100m, 110m, 90m, 105m, 1000, null)], Array.Empty<CorporateActionSourceRecord>());
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _activeChartRequests);
+            }
         }
 
         public Task<FundamentalDataSourceRecord> FetchFundamentalsAsync(string code, CancellationToken cancellationToken)

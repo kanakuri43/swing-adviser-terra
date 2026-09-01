@@ -68,6 +68,31 @@ public class DailyUpdateOrchestratorTests
         Assert.Contains("malformed data", store.FinalSummary!);
     }
 
+    [Fact]
+    public async Task ReportsTheCurrentStageAndItsWorkItemsBeforeTheStageCompletes()
+    {
+        var reports = new List<DailyUpdateStepProgress>();
+        var stages = Enum.GetValues<DailyUpdateStep>().Select(step => new DelegateStage(step, context =>
+        {
+            if (step == DailyUpdateStep.RefreshMarketData)
+                context.ReportStageProgress("価格を取得中", 12, 100);
+            return new DailyUpdateStepResult(1, 0, step.ToString());
+        }));
+
+        await new DailyUpdateOrchestrator(new FakeRunStore(), stages, new FixedTimeProvider())
+            .RunAsync(Request(), new InlineProgress<DailyUpdateStepProgress>(reports.Add));
+
+        Assert.Contains(reports, report => report.Step == DailyUpdateStep.RefreshMarketData
+            && report.Status == "Running"
+            && report.CompletedSteps == 0
+            && report.CompletedWorkItems == 12
+            && report.TotalWorkItems == 100
+            && report.Detail == "価格を取得中");
+        Assert.Contains(reports, report => report.Step == DailyUpdateStep.VerifyDataAvailability
+            && report.Status == "Running"
+            && report.CompletedSteps == 1);
+    }
+
     private static DailyUpdateRequest Request() => new(new DateOnly(2026, 8, 31), new DateTime(2026, 8, 31, 7, 0, 0, DateTimeKind.Utc), "test-universe-v1");
 
     private static IEnumerable<IDailyUpdateStage> Stages(Func<DailyUpdateStep, DailyUpdateStepResult> result) => Enum.GetValues<DailyUpdateStep>().Select(step => new DelegateStage(step, _ => result(step)));
@@ -91,5 +116,10 @@ public class DailyUpdateOrchestratorTests
     private sealed class FixedTimeProvider : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => new(2026, 8, 31, 7, 30, 0, TimeSpan.Zero);
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

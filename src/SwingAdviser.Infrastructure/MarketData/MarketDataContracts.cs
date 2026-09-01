@@ -54,6 +54,14 @@ public sealed record FundamentalDataSourceRecord(
     decimal? DividendYield,
     string? AdditionalMetricsJson);
 
+/// <summary>Describes a cache-first refresh request for one instrument.</summary>
+public sealed record InstrumentRefreshTarget(
+    int InstrumentId,
+    string Code,
+    bool RefreshChart,
+    DateTime? ChartPeriodStartUtc,
+    bool RefreshFundamentals);
+
 public interface IJpxListedIssuesSource
 {
     Task<ListedInstrumentSourceSnapshot> FetchAsync(CancellationToken cancellationToken);
@@ -69,6 +77,15 @@ public interface IYahooFinanceSource
     Task<YahooChartSourceSnapshot> FetchChartAsync(string code, CancellationToken cancellationToken);
 
     Task<FundamentalDataSourceRecord> FetchFundamentalsAsync(string code, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Optional extension for providers that can fetch a bounded daily-bar window.
+/// Older provider implementations retain <see cref="IYahooFinanceSource"/> compatibility.
+/// </summary>
+public interface IIncrementalYahooFinanceSource : IYahooFinanceSource
+{
+    Task<YahooChartSourceSnapshot> FetchChartAsync(string code, DateTime? periodStartUtc, CancellationToken cancellationToken);
 }
 
 /// <summary>Typed failure that can be persisted without exposing transport implementation details.</summary>

@@ -1,5 +1,6 @@
 using System.Windows;
 using SwingAdviser.Infrastructure.Analysis;
+using SwingAdviser.Infrastructure.DailyUpdates;
 using SwingAdviser.Infrastructure.Positions;
 
 namespace SwingAdviser.Presentation;
@@ -8,6 +9,7 @@ public partial class App : System.Windows.Application
 {
     private RuntimePositionServices? _services;
     private RuntimeAiCheckServices? _aiServices;
+    private RuntimeDailyUpdateServices? _dailyUpdateServices;
 
     protected override void OnStartup(StartupEventArgs eventArgs)
     {
@@ -16,12 +18,13 @@ public partial class App : System.Windows.Application
         {
             _services = RuntimePositionServices.Create();
             _aiServices = RuntimeAiCheckServices.Create();
+            _dailyUpdateServices = RuntimeDailyUpdateServices.Create(_aiServices.Queue);
             _ = Task.Run(async () =>
             {
                 await _aiServices.Queue.RecoverInterruptedAsync(CancellationToken.None);
                 await _aiServices.Queue.ProcessAvailableAsync(CancellationToken.None);
             });
-            new MainWindow(_services.Registration, _services.InstrumentLookup, _services.OverviewReader, _aiServices.Queue, _aiServices.Queue).Show();
+            new MainWindow(_services.Registration, _services.InstrumentLookup, _services.OverviewReader, _aiServices.Queue, _aiServices.Queue, _dailyUpdateServices.Runner, _dailyUpdateServices.OverviewReader).Show();
         }
         catch (Exception exception)
         {
@@ -33,6 +36,7 @@ public partial class App : System.Windows.Application
     protected override void OnExit(ExitEventArgs eventArgs)
     {
         _services?.Dispose();
+        _dailyUpdateServices?.Dispose();
         base.OnExit(eventArgs);
     }
 }

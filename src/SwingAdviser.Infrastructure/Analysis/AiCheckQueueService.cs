@@ -122,19 +122,43 @@ public sealed class AiCheckQueueService : IAiCandidateQueueEnqueuer, IAiCheckQue
             .Include(item => item.CandidateResult).ThenInclude(candidate => candidate.IndicatorResult).ThenInclude(indicator => indicator.Manifest)
             .ToListAsync(cancellationToken);
         var results = await context.AiCheckResults.AsNoTracking().ToDictionaryAsync(item => item.AttemptId, cancellationToken);
-        var allCandidates = await context.CandidateResults.AsNoTracking()
+        // A cancelled or interrupted scan retains its audit rows, but must never be mixed into
+        // the current candidate list. Prefer the newest scan that reached a terminal usable
+        // state; a newer Running scan continues to leave the last complete result visible.
+        var latestCompletedScanRunId = await context.ScanRuns.AsNoTracking()
+            .Where(run => run.Status == "Succeeded" || run.Status == "PartiallySucceeded")
+            .OrderByDescending(run => run.CompletedAtUtc)
+            .ThenByDescending(run => run.ScanRunId)
+            .Select(run => (int?)run.ScanRunId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        IEnumerable<CandidateResult> allCandidates = latestCompletedScanRunId is null
+            ? Array.Empty<CandidateResult>()
+            : await context.CandidateResults.AsNoTracking()
             .Include(candidate => candidate.IndicatorResult).ThenInclude(indicator => indicator.Manifest)
             .Include(candidate => candidate.IndicatorResult).ThenInclude(indicator => indicator.StrategyParameterSnapshot)
             .Include(candidate => candidate.Instrument).ThenInclude(instrument => instrument.MasterRevisions)
-            .Where(candidate => candidate.Matched && candidate.SignalPurpose == "Entry" && (candidate.Direction == "Long" || candidate.Direction == "Short"))
+            .Where(candidate => candidate.IndicatorResult.ScanRunId == latestCompletedScanRunId
+                && candidate.Matched
+                && candidate.SignalPurpose == "Entry"
+                && (candidate.Direction == "Long" || candidate.Direction == "Short"))
             .ToListAsync(cancellationToken);
+        var instrumentIds = allCandidates.Select(candidate => candidate.InstrumentId).Distinct().ToArray();
+        var latestBars = (await context.DailyBars.AsNoTracking()
+            .Where(bar => instrumentIds.Contains(bar.InstrumentId) && (bar.Status == "Final" || bar.Status == "Corrected"))
+            .ToListAsync(cancellationToken))
+            .GroupBy(bar => new { bar.InstrumentId, bar.TradingDate })
+            .Select(group => group.OrderByDescending(bar => bar.Revision).First())
+            .GroupBy(bar => bar.InstrumentId)
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(bar => bar.TradingDate).First());
         var latest = attempts.GroupBy(item => item.CandidateResultId).ToDictionary(group => group.Key, group => group.OrderByDescending(item => item.RequestedAtUtc).ThenByDescending(item => item.AttemptId).First());
         var candidates = allCandidates.OrderByDescending(candidate => candidate.IndicatorResult.EvaluationBarDate).ThenByDescending(candidate => candidate.Score).ThenBy(candidate => InstrumentCode(candidate)).Select(candidate =>
         {
             latest.TryGetValue(candidate.CandidateResultId, out var attempt);
             results.TryGetValue(attempt?.AttemptId ?? 0, out var result);
             var verdict = result?.Verdict;
-            return new AiCandidateOverview(candidate.CandidateResultId, InstrumentCode(candidate), InstrumentName(candidate), candidate.Direction, candidate.IndicatorResult.EvaluationBarDate, candidate.Score, candidate.ConfidenceLabel, attempt is null ? "未実行" : attempt.IsStale ? "旧結果" : DisplayStatus(attempt.Status), attempt?.AttemptId, attempt?.IsStale ?? false, verdict, verdict is null ? null : Alignment(candidate.Direction, verdict), result?.Summary);
+            latestBars.TryGetValue(candidate.InstrumentId, out var latestBar);
+            return new AiCandidateOverview(candidate.CandidateResultId, InstrumentCode(candidate), InstrumentName(candidate), candidate.Direction, candidate.IndicatorResult.EvaluationBarDate, candidate.Score, candidate.ConfidenceLabel, attempt is null ? "未実行" : attempt.IsStale ? "旧結果" : DisplayStatus(attempt.Status), attempt?.AttemptId, attempt?.IsStale ?? false, verdict, verdict is null ? null : Alignment(candidate.Direction, verdict), result?.Summary, latestBar?.TradingDate, latestBar?.Close);
         }).ToArray();
         return new AiQueueOverview(attempts.Count(item => item.Status == Queued), attempts.Count(item => item.Status == Running), attempts.Count(item => item.Status == Succeeded), attempts.Count(item => item.Status == Failed), attempts.Count(item => item.Status == TimedOut), attempts.Count(item => item.Status == InsufficientInformation), attempts.Count(item => item.Status == Cancelled), candidates);
     }

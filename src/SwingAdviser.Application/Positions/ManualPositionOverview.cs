@@ -8,7 +8,17 @@ public sealed record ManualPositionOverview(
     string Side,
     decimal CurrentQuantity,
     string Strategy,
-    string ReconciliationStatus);
+    string ReconciliationStatus,
+    string? EvaluationDecision = null,
+    DateOnly? EvaluationBarDate = null,
+    string? EvaluationOutcome = null,
+    decimal? StopCandidate = null,
+    decimal? TakeProfitCandidate = null,
+    DateOnly? EarliestRepaymentDate = null,
+    decimal? ConfirmedCost = null,
+    decimal? ReferenceNetProfitAndLoss = null,
+    DateOnly? LatestBarDate = null,
+    decimal? LatestClose = null);
 
 public sealed record ManualExecutionOverview(
     int TradeExecutionId,

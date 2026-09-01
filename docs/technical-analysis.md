@@ -33,7 +33,7 @@ Non-negotiable rules・優先順位は AGENT.md 側が正であり、本ファ�
 出来高の「直近20日平均」は候補日自身を含めず、候補日の直前20本の有効日足を対象とする。出来高倍率は `候補日の調整済み出来高 / 直前20本平均` とし、分母が0の場合は倍率を欠損状態 `ReferenceAverageZero` として保持して、0倍や無限大を推測しない。アルゴリズム識別子は平均を `volume-trailing-prior-bars-sma-v1`、倍率を `volume-current-to-prior-average-v1` とする。
 
 ### EMA calculation contract
-EMA は銘柄ごとの上場来履歴を固定起点とし、現在日から遡る移動窓を起点にしない。休場日・売買停止日は補間せず、有効な日足を取引日昇順で使用する。履歴の完全性を確認できない場合は計算しない。
+EMA は、評価日から原則5年（または必要指標のウォームアップに必要な、より長い期間）の固定分析窓を起点とする。休場日・売買停止日は補間せず、有効な日足を取引日昇順で使用する。上場来履歴の完全性は前提にせず、窓内に必要本数がなければ計算しない。
 
 期間を `N`、入力終値を `Close[i]` とし、`alpha = 2 / (N + 1)` とする。先頭 `N` 本の単純平均を `N` 本目のシードとし、以後を次式で計算する。
 
@@ -46,7 +46,7 @@ EMA[i]   = alpha * Close[i] + (1 - alpha) * EMA[i-1]  (i >= N)
 
 初期戦略では EMA200 を必須とする。EMA200の当日値だけなら200本、前日値やクロスを使う判定には201本の有効日足を必要とするため、スキャンの最低履歴本数は201本とする。不足銘柄は Long/Short 候補から除外し、`InsufficientHistory`、保有本数、必要本数を保存・表示する。短いEMAへの代替やスコア重みの再配分は行わない。
 
-指標エンジンは、Infrastructureのpoint-in-time選択・企業アクション調整境界だけが生成できる検証済み系列型を入力とし、manifestから再構築した日付ごとの価格revision ID、価格revision集合hash、企業アクション集合hash、manifest hashを保持する。評価日を末尾とする日付昇順・重複なしの確定済みまたは訂正済み日足だけを受け付け、manifestと件数・先頭日・末尾日・最低必要本数が一致しない系列、評価日より後の足、暫定足・無効足は `InvalidData` として計算しない。`HistoryIncomplete`、`PointInTimeUnverified`、企業アクションの `ReconciliationRequired` も成功値へフォールバックしない。
+指標エンジンは、Infrastructureのpoint-in-time選択・企業アクション調整境界だけが生成できる検証済み系列型を入力とし、manifestから再構築した日付ごとの価格revision ID、価格revision集合hash、企業アクション集合hash、分析窓開始日、manifest hashを保持する。評価日を末尾とする日付昇順・重複なしの確定済みまたは訂正済み日足だけを受け付け、manifestと件数・先頭日・末尾日・最低必要本数が一致しない系列、評価日より後の足、暫定足・無効足は `InvalidData` として計算しない。`PointInTimeUnverified`、企業アクションの `ReconciliationRequired` も成功値へフォールバックしない。
 
 Long/Short 判定条件(仮決定、非対称):
 - Long Entry: 当日 MACD line > signal、EMA20 > EMA50 > EMA200、出来高倍率が方向別の最低値以上なら候補とする。出来高倍率は候補の足切り用フィルタとしてのみ使用し、Longのスコア構成要素にはしない。

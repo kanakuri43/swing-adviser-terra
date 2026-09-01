@@ -132,10 +132,10 @@ JPX 上場銘柄一覧の取り込みごとの改訂履歴。
 | status | TEXT | `Provisional` / `Final` / `Corrected` / `Voided` |
 
 一意制約: `(instrument_id, trading_date, revision)`。
-どの改訂を分析へ使用したかは `analysis_input_manifest_bars` が個別に参照する。任意の取得開始日を EMA の起点にせず、履歴完全性が確認できない場合は `HistoryIncomplete` として `indicator_results` 側で扱う。
+どの改訂を分析へ使用したかは `analysis_input_manifest_bars` が個別に参照する。EMA は保存済みの有限分析窓を起点とし、その開始日もmanifest hashへ含める。窓内に必要本数がない場合は `InsufficientHistory` として `indicator_results` 側で扱う。
 
 ### `daily_bar_history_coverages`
-取得元が上場来の有効な日足を完全に返したかを、銘柄・取得元ごとに append-only で記録する。`period1=0` の要求だけでは完全性を推測せず、不正・欠損バーを含まない応答を確認できた場合のみ `full_history_confirmed = true` とする。
+取得元応答の観測範囲を、銘柄・取得元ごとに append-only で記録する。`full_history_confirmed` は上場来履歴を要求した場合の監査情報であり、日次スキャンの実行可否には使わない。
 
 主な列: `instrument_id`, `source`, `earliest_returned_date`, `latest_returned_date`, `full_history_confirmed`, `observed_at_utc`, `revision`, `supersedes_id`, `status` (`Complete` / `Incomplete`)。
 

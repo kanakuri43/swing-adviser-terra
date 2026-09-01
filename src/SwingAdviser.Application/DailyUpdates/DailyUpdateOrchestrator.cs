@@ -40,7 +40,12 @@ public sealed class DailyUpdateOrchestrator
                 foreach (var step in OrderedSteps)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    context.SetStageProgressReporter((detail, completedWorkItems, totalWorkItems) =>
+                        progress?.Report(CreateInProgressProgress(run.DailyUpdateRunId, step, outcomes, detail, completedWorkItems, totalWorkItems)));
+                    progress?.Report(CreateInProgressProgress(run.DailyUpdateRunId, step, outcomes,
+                        $"ステップ {outcomes.Count + 1}/{OrderedSteps.Length}: {DisplayStep(step)} を開始しています。"));
                     var outcome = await ExecuteStepSafelyAsync(_stages[step], context, cancellationToken);
+                    context.SetStageProgressReporter(null);
                     outcomes.Add(step, outcome);
                     if (step == DailyUpdateStep.RefreshMarketData) context.AnalyzedAtUtc = _clock.GetUtcNow().UtcDateTime;
                     var summary = Serialize(outcomes, isCoreComplete: outcomes.Count >= 9);
@@ -84,6 +89,27 @@ public sealed class DailyUpdateOrchestrator
     private static DailyUpdateStepProgress CreateProgress(int runId, DailyUpdateStep step, IReadOnlyDictionary<DailyUpdateStep, DailyUpdateStepResult> outcomes) => new(
         runId, step, outcomes.Count, OrderedSteps.Length, outcomes.Values.Sum(outcome => outcome.SucceededCount), outcomes.Values.Sum(outcome => outcome.FailedCount),
         outcomes[step].IsSuccess ? "Succeeded" : "Failed", outcomes[step].Detail);
+
+    private static DailyUpdateStepProgress CreateInProgressProgress(int runId, DailyUpdateStep step, IReadOnlyDictionary<DailyUpdateStep, DailyUpdateStepResult> outcomes,
+        string detail, int? completedWorkItems = null, int? totalWorkItems = null) => new(
+        runId, step, outcomes.Count, OrderedSteps.Length, outcomes.Values.Sum(outcome => outcome.SucceededCount), outcomes.Values.Sum(outcome => outcome.FailedCount),
+        "Running", detail, completedWorkItems, totalWorkItems);
+
+    private static string DisplayStep(DailyUpdateStep step) => step switch
+    {
+        DailyUpdateStep.RefreshMarketData => "外部データを更新",
+        DailyUpdateStep.VerifyDataAvailability => "データ利用可否を確認",
+        DailyUpdateStep.ApplyCorporateActionAdjustments => "企業アクションを反映",
+        DailyUpdateStep.BuildPointInTimeSeries => "時点整合データを準備",
+        DailyUpdateStep.RunTechnicalAnalysis => "テクニカル分析を実行",
+        DailyUpdateStep.ExtractLongCandidates => "Long候補を抽出",
+        DailyUpdateStep.ExtractShortCandidates => "Short候補を抽出",
+        DailyUpdateStep.ReevaluateHoldings => "保有を再評価",
+        DailyUpdateStep.PersistAnalysisResults => "分析結果を保存",
+        DailyUpdateStep.PublishResults => "結果を公開",
+        DailyUpdateStep.EnqueueAiChecks => "AIチェックをキューへ投入",
+        _ => step.ToString(),
+    };
 
     private static string CoreStatus(IReadOnlyDictionary<DailyUpdateStep, DailyUpdateStepResult> outcomes)
     {

@@ -14,19 +14,22 @@ public sealed class MarketDataIngestionService
     private readonly IJpxMarginIssuesSource _marginIssuesSource;
     private readonly IYahooFinanceSource _yahooFinanceSource;
     private readonly TimeProvider _clock;
+    private readonly int _maxConcurrentInstrumentFetches;
 
     public MarketDataIngestionService(
         MarketDataRepository repository,
         IJpxListedIssuesSource listedIssuesSource,
         IJpxMarginIssuesSource marginIssuesSource,
         IYahooFinanceSource yahooFinanceSource,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        int maxConcurrentInstrumentFetches = 1)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _listedIssuesSource = listedIssuesSource ?? throw new ArgumentNullException(nameof(listedIssuesSource));
         _marginIssuesSource = marginIssuesSource ?? throw new ArgumentNullException(nameof(marginIssuesSource));
         _yahooFinanceSource = yahooFinanceSource ?? throw new ArgumentNullException(nameof(yahooFinanceSource));
         _clock = clock ?? TimeProvider.System;
+        _maxConcurrentInstrumentFetches = Math.Clamp(maxConcurrentInstrumentFetches, 1, 8);
     }
 
     public async Task<int> RefreshInstrumentMasterAsync(int? dailyUpdateRunId, CancellationToken cancellationToken)
@@ -75,55 +78,152 @@ public sealed class MarketDataIngestionService
 
     public async Task<InstrumentRefreshResult> RefreshInstrumentAsync(int? dailyUpdateRunId, int instrumentId, string code, CancellationToken cancellationToken)
     {
-        var chartRecords = 0;
-        var fundamentalRecords = 0;
-        try
-        {
-            var attemptedAtUtc = UtcNow;
-            var chart = await _yahooFinanceSource.FetchChartAsync(code, cancellationToken);
-            chartRecords = await _repository.ImportYahooChartAsync(instrumentId, chart, attemptedAtUtc, cancellationToken);
-            await SucceedAsync(dailyUpdateRunId, "YahooFinanceChartApiV8", instrumentId, chart.DailyBars.Count + chart.CorporateActions.Count, attemptedAtUtc, cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            await FailAsync(dailyUpdateRunId, "YahooFinanceChartApiV8", instrumentId, "Cancelled", "The Yahoo chart refresh was cancelled.");
-            throw;
-        }
-        catch (Exception exception)
-        {
-            await FailAsync(dailyUpdateRunId, "YahooFinanceChartApiV8", instrumentId, Classify(exception), SafeMessage(exception));
-        }
-
-        try
-        {
-            var attemptedAtUtc = UtcNow;
-            var fundamental = await _yahooFinanceSource.FetchFundamentalsAsync(code, cancellationToken);
-            await _repository.AddFundamentalSnapshotAsync(instrumentId, fundamental, attemptedAtUtc, cancellationToken);
-            fundamentalRecords = 1;
-            await SucceedAsync(dailyUpdateRunId, "YahooFinanceQuoteApiV7", instrumentId, fundamentalRecords, attemptedAtUtc, cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            await FailAsync(dailyUpdateRunId, "YahooFinanceQuoteApiV7", instrumentId, "Cancelled", "The Yahoo fundamentals refresh was cancelled.");
-            throw;
-        }
-        catch (Exception exception)
-        {
-            await FailAsync(dailyUpdateRunId, "YahooFinanceQuoteApiV7", instrumentId, Classify(exception), SafeMessage(exception));
-        }
-
-        return new InstrumentRefreshResult(instrumentId, chartRecords, fundamentalRecords);
+        var fetched = await FetchInstrumentAsync(new InstrumentRefreshTarget(instrumentId, code, true, null, true), 0, cancellationToken);
+        return await PersistInstrumentAsync(dailyUpdateRunId, fetched, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<InstrumentRefreshResult>> RefreshInstrumentsAsync(int? dailyUpdateRunId, IEnumerable<(int InstrumentId, string Code)> instruments, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<InstrumentRefreshTarget>> CreateRefreshTargetsAsync(
+        IEnumerable<(int InstrumentId, string Code)> instruments,
+        DateOnly evaluationBarDate,
+        DateTime analyzedAtUtc,
+        DateTime chartPeriodStartUtc,
+        CancellationToken cancellationToken)
+        => _repository.CreateRefreshTargetsAsync(instruments, evaluationBarDate, analyzedAtUtc, chartPeriodStartUtc, cancellationToken);
+
+    public async Task<IReadOnlyList<InstrumentRefreshResult>> RefreshInstrumentsAsync(int? dailyUpdateRunId, IEnumerable<(int InstrumentId, string Code)> instruments,
+        CancellationToken cancellationToken, IProgress<InstrumentRefreshProgress>? progress = null)
     {
-        var results = new List<InstrumentRefreshResult>();
-        foreach (var instrument in instruments)
+        return await RefreshInstrumentsAsync(dailyUpdateRunId, instruments.Select(item => new InstrumentRefreshTarget(item.InstrumentId, item.Code, true, null, true)), cancellationToken, progress);
+    }
+
+    /// <summary>Overlaps bounded network fetches with serial SQLite persistence without sharing the DbContext across threads.</summary>
+    public async Task<IReadOnlyList<InstrumentRefreshResult>> RefreshInstrumentsAsync(int? dailyUpdateRunId, IEnumerable<InstrumentRefreshTarget> instruments,
+        CancellationToken cancellationToken, IProgress<InstrumentRefreshProgress>? progress = null)
+    {
+        var targets = instruments.ToArray();
+        var results = new InstrumentRefreshResult[targets.Length];
+        var pending = new List<Task<FetchedInstrument>>(_maxConcurrentInstrumentFetches);
+        var nextTargetIndex = 0;
+        var completedCount = 0;
+
+        while (nextTargetIndex < targets.Length || pending.Count != 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            results.Add(await RefreshInstrumentAsync(dailyUpdateRunId, instrument.InstrumentId, instrument.Code, cancellationToken));
+            while (nextTargetIndex < targets.Length && pending.Count < _maxConcurrentInstrumentFetches)
+            {
+                var target = targets[nextTargetIndex];
+                if (!target.RefreshChart && !target.RefreshFundamentals)
+                {
+                    results[nextTargetIndex] = new InstrumentRefreshResult(target.InstrumentId, 0, 0);
+                    completedCount++;
+                    progress?.Report(new InstrumentRefreshProgress(completedCount, targets.Length, target.Code, UsedCachedChart: true));
+                    nextTargetIndex++;
+                    continue;
+                }
+
+                pending.Add(FetchInstrumentAsync(target, nextTargetIndex, cancellationToken));
+                nextTargetIndex++;
+            }
+
+            if (pending.Count == 0) continue;
+
+            var completedFetch = await Task.WhenAny(pending);
+            pending.Remove(completedFetch);
+            var fetched = await completedFetch;
+            results[fetched.TargetIndex] = await PersistInstrumentAsync(dailyUpdateRunId, fetched, cancellationToken);
+            completedCount++;
+            progress?.Report(new InstrumentRefreshProgress(completedCount, targets.Length, fetched.Target.Code));
         }
+
         return results;
+    }
+
+    private async Task<FetchedInstrument> FetchInstrumentAsync(InstrumentRefreshTarget target, int targetIndex, CancellationToken cancellationToken)
+    {
+        Task<FetchAttempt<YahooChartSourceSnapshot>>? chartTask = target.RefreshChart
+            ? FetchAsync(() => FetchChartAsync(target, cancellationToken), cancellationToken)
+            : null;
+        Task<FetchAttempt<FundamentalDataSourceRecord>>? fundamentalTask = target.RefreshFundamentals
+            ? FetchAsync(() => _yahooFinanceSource.FetchFundamentalsAsync(target.Code, cancellationToken), cancellationToken)
+            : null;
+        if (chartTask is not null && fundamentalTask is not null) await Task.WhenAll(chartTask, fundamentalTask);
+        else if (chartTask is not null) await chartTask;
+        else if (fundamentalTask is not null) await fundamentalTask;
+        return new FetchedInstrument(targetIndex, target, chartTask is null ? null : await chartTask, fundamentalTask is null ? null : await fundamentalTask);
+    }
+
+    private Task<YahooChartSourceSnapshot> FetchChartAsync(InstrumentRefreshTarget target, CancellationToken cancellationToken)
+        => _yahooFinanceSource is IIncrementalYahooFinanceSource incrementalSource
+            ? incrementalSource.FetchChartAsync(target.Code, target.ChartPeriodStartUtc, cancellationToken)
+            : _yahooFinanceSource.FetchChartAsync(target.Code, cancellationToken);
+
+    private async Task<InstrumentRefreshResult> PersistInstrumentAsync(int? dailyUpdateRunId, FetchedInstrument fetched, CancellationToken cancellationToken)
+    {
+        var chartRecords = 0;
+        if (fetched.Chart?.Value is not null)
+        {
+            try
+            {
+                chartRecords = await _repository.ImportYahooChartAsync(fetched.Target.InstrumentId, fetched.Chart.Value, fetched.Chart.AttemptedAtUtc, cancellationToken);
+                await SucceedAsync(dailyUpdateRunId, "YahooFinanceChartApiV8", fetched.Target.InstrumentId, fetched.Chart.Value.DailyBars.Count + fetched.Chart.Value.CorporateActions.Count, fetched.Chart.AttemptedAtUtc, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await FailAsync(dailyUpdateRunId, "YahooFinanceChartApiV8", fetched.Target.InstrumentId, "Cancelled", "The Yahoo chart refresh was cancelled.");
+                throw;
+            }
+            catch (Exception exception)
+            {
+                await FailAsync(dailyUpdateRunId, "YahooFinanceChartApiV8", fetched.Target.InstrumentId, Classify(exception), SafeMessage(exception));
+            }
+        }
+        else if (fetched.Chart is not null)
+        {
+            await FailAsync(dailyUpdateRunId, "YahooFinanceChartApiV8", fetched.Target.InstrumentId, Classify(fetched.Chart.Error!), SafeMessage(fetched.Chart.Error!));
+        }
+
+        var fundamentalRecords = 0;
+        if (fetched.Fundamental?.Value is not null)
+        {
+            try
+            {
+                await _repository.AddFundamentalSnapshotAsync(fetched.Target.InstrumentId, fetched.Fundamental.Value, fetched.Fundamental.AttemptedAtUtc, cancellationToken);
+                fundamentalRecords = 1;
+                await SucceedAsync(dailyUpdateRunId, "YahooFinanceQuoteApiV7", fetched.Target.InstrumentId, fundamentalRecords, fetched.Fundamental.AttemptedAtUtc, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await FailAsync(dailyUpdateRunId, "YahooFinanceQuoteApiV7", fetched.Target.InstrumentId, "Cancelled", "The Yahoo fundamentals refresh was cancelled.");
+                throw;
+            }
+            catch (Exception exception)
+            {
+                await FailAsync(dailyUpdateRunId, "YahooFinanceQuoteApiV7", fetched.Target.InstrumentId, Classify(exception), SafeMessage(exception));
+            }
+        }
+        else if (fetched.Fundamental is not null)
+        {
+            await FailAsync(dailyUpdateRunId, "YahooFinanceQuoteApiV7", fetched.Target.InstrumentId, Classify(fetched.Fundamental.Error!), SafeMessage(fetched.Fundamental.Error!));
+        }
+
+        return new InstrumentRefreshResult(fetched.Target.InstrumentId, chartRecords, fundamentalRecords);
+    }
+
+    private async Task<FetchAttempt<T>> FetchAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken) where T : class
+    {
+        var attemptedAtUtc = UtcNow;
+        try
+        {
+            return new FetchAttempt<T>(await operation(), null, attemptedAtUtc);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return new FetchAttempt<T>(null, exception, attemptedAtUtc);
+        }
     }
 
     private DateTime UtcNow => _clock.GetUtcNow().UtcDateTime;
@@ -156,5 +256,11 @@ public sealed class MarketDataIngestionService
         return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(utc, jst));
     }
 }
+
+internal sealed record FetchAttempt<T>(T? Value, Exception? Error, DateTime AttemptedAtUtc) where T : class;
+internal sealed record FetchedInstrument(int TargetIndex, InstrumentRefreshTarget Target, FetchAttempt<YahooChartSourceSnapshot>? Chart, FetchAttempt<FundamentalDataSourceRecord>? Fundamental);
+
+/// <summary>Visible count for a long-running universe refresh. It is informational and never changes analysis outcomes.</summary>
+public sealed record InstrumentRefreshProgress(int CompletedCount, int TotalCount, string LastCompletedCode, bool UsedCachedChart = false);
 
 public sealed record InstrumentRefreshResult(int InstrumentId, int ChartRecordsImported, int FundamentalSnapshotsAdded);

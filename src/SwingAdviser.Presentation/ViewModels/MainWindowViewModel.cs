@@ -5,95 +5,147 @@ namespace SwingAdviser.Presentation.ViewModels;
 /// <summary>
 /// Phase 4, 8, and 10 layout-only data source. Production data access is deliberately deferred.
 /// </summary>
-public sealed class MainWindowViewModel
+public sealed class MainWindowViewModel : ObservableObject
 {
     public string Title => "Swing Adviser — 日本株スイング判断支援";
 
     public string SafetyNotice =>
         "分析結果は参考情報です。注文・自動売買は行いません。約定は証券会社の通知を確認し、利用者が入力・確認した内容だけを保存します。";
 
-    public string MockStatus => "Phase 4・8・10 UIモック確認: レイアウト・情報量・誤操作防止を確認するための静的なダミーデータです。AI結果は参考情報であり、注文・約定を生成しません。";
+    private string _statusMessage = "実データを読み込んでいます。日次分析更新は利用者が明示的に開始します。";
+    private UpdateProgressRow _dailyUpdateProgress = new("未実行", 0, false, "日次分析更新はまだ実行されていません。", "更新すると、外部データ取得・分析・候補生成・保有再評価を実行します。");
+    private UpdateProgressRow _aiQueueProgress = new("未実行", 0, false, "AIチェックはまだありません。", "AIチェックは日次分析の完了を待たず、設定で有効な場合だけ自動投入します。");
+    private bool _isUpdateRunning;
+    private bool _isDisplayLoading;
+    private string _dailyUpdateDetailBeforeHeartbeat = "日次分析更新はまだ実行されていません。";
+
+    public string StatusMessage { get => _statusMessage; private set => Set(ref _statusMessage, value); }
+    public UpdateProgressRow DailyUpdateProgress { get => _dailyUpdateProgress; private set => Set(ref _dailyUpdateProgress, value); }
+    public UpdateProgressRow AiQueueProgress { get => _aiQueueProgress; private set => Set(ref _aiQueueProgress, value); }
+    public bool IsUpdateRunning { get => _isUpdateRunning; private set => Set(ref _isUpdateRunning, value); }
+    public bool IsDisplayLoading { get => _isDisplayLoading; private set => Set(ref _isDisplayLoading, value); }
 
     public string CandidateCaption => "スコアは候補条件への一致度を表す参考情報であり、勝率や利益を保証するものではありません。";
 
-    public UpdateProgressRow DailyUpdateProgress { get; } = new(
-        "完了",
-        100,
-        false,
-        "11 / 11 ステップ完了  ・  成功 3,841銘柄  ・  失敗 3銘柄",
-        "2026-08-31 16:12 JST 完了。失敗銘柄と原因は更新履歴で確認します。");
-
-    public UpdateProgressRow AiQueueProgress { get; } = new(
-        "継続中",
-        50,
-        true,
-        "対象 6件  ・  成功 2件  ・  実行中 2件  ・  待機中 2件  ・  失敗 0件",
-        "AIチェックは非同期です。失敗しても日次分析結果を無効にしません。");
-
-    public ObservableCollection<CandidateRow> Candidates { get; } =
-    [
-        new("7203", "トヨタ自動車", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "82", "High", "EMA20 > EMA50、MACD上向き、出来高倍率 1.7", "未実行"),
-        new("6758", "ソニーグループ", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "74", "Medium", "高値更新、MACDヒストグラム改善", "待機中"),
-        new("8035", "東京エレクトロン", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "77", "High", "出来高を伴う高値更新", "実行中"),
-        new("9101", "日本郵船", "Short", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "79", "High", "EMA20 < EMA50、出来高増加、下落トレンド", "成功", null, null, "Bearish", "候補方向と整合", "下落トレンドの継続を示す材料を確認しました。反転時のリスクも併記します。"),
-        new("9984", "ソフトバンクグループ", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "69", "Medium", "MACD改善、値動き大", "成功", null, null, "Neutral", "中立", "上昇・下落の材料が拮抗しており、市場見通しは中立です。"),
-        new("4063", "信越化学工業", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "71", "Medium", "EMA20回復を確認", "失敗", null, null, null, null, "AIチェックを完了できませんでした。テクニカル候補は引き続き表示します。"),
-        new("9983", "ファーストリテイリング", "Short", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "72", "Medium", "EMA20を下回り出来高増加", "timeout", null, null, null, null, "制限時間内にAIチェックが完了しませんでした。明示的に再試行できます。"),
-        new("6098", "リクルートホールディングス", "Long", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "68", "Low", "出来高増加、トレンド確認中", "情報不足", null, null, null, null, "確認可能な情報が不足しています。Neutral（中立）ではありません。"),
-        new("8604", "野村ホールディングス", "Short", "Entry", "2026-08-28", "candidate-scoring-engine-v1", "70", "Medium", "戻り売り条件を確認", "キャンセル", null, null, null, null, "待機中のAIチェックを利用者が取り消しました。必要なら明示的に再試行できます。"),
-        new("6501", "日立製作所", "Long", "Entry", "2026-08-27", "candidate-scoring-engine-v1", "80", "High", "前分析時点の候補", "旧結果", null, null, "Bullish", "候補方向と整合", "以前の分析時点の結果です。現在の候補判断には使用せず、履歴として確認します。"),
-    ];
-
-    public ObservableCollection<ExcludedCandidateRow> ExcludedCandidates { get; } =
-    [
-        new("0000", "（履歴不足の例）", "InsufficientHistory", "145本 / 200本", "必須指標を算出できないため、条件不一致として扱いません。"),
-        new("0001", "（PIT未保証の例）", "PointInTimeUnverified", "200本 / 200本", "企業アクションの利用可能時点を検証できないため、候補から除外しています。"),
-    ];
-
-    public ObservableCollection<PositionRow> Positions { get; } =
-    [
-        new("9432", "NTT", "Long", "1,000株", "swing-long-v1", "HOLD", "2026-08-28", "トレンド継続。損切・利確ライン未到達", "150.0円", "165.0円", "期限・コスト情報を確認中", "2026-11-20 / 残 57営業日", "-1,240円", "未確定", "+8,500円", "未算定（見積コスト欠損）", "期限確認済み / コスト要確認", 101),
-        new("8306", "三菱UFJフィナンシャル・グループ", "Short", "500株", "swing-short-v1", "利確候補", "2026-08-28", "利確目標に接近。逆行時は損切候補を確認", "2,080.0円", "1,910.0円", "HOLD理由なし", "期限未確認 / 残営業日 未算定", "未確定", "-860円", "+31,000円", "未算定（確定コスト欠損）", "期限未確認・企業アクション要照合", 102),
-    ];
-
-    public ObservableCollection<ExecutionRow> Executions { get; } =
-    [
-        new("9432", "NTT", "Long", "新規", "利用者手入力", "2026-08-05 10:15", "154.2円", "1,000株", "Rev 1（現行）", "Rev 1: 利用者確認済み。訂正は元の約定を残した新しい revision として登録します。"),
-        new("8306", "三菱UFJフィナンシャル・グループ", "Short", "新規", "候補から入力補助", "2026-08-12 13:40", "1,980.0円", "500株", "Rev 2（訂正済み）", "Rev 1: 2026-08-12 13:38 / 1,978.0円 / 500株。Rev 2: 利用者が証券会社の約定通知を確認して価格を訂正。"),
-    ];
+    public ObservableCollection<CandidateRow> Candidates { get; } = [];
+    public ObservableCollection<ExcludedCandidateRow> ExcludedCandidates { get; } = [];
+    public ObservableCollection<PositionRow> Positions { get; } = [];
+    public ObservableCollection<ExecutionRow> Executions { get; } = [];
 
     public async Task ReloadManualRecordsAsync(SwingAdviser.Application.Positions.IManualPositionOverviewReader reader)
     {
         var positions = await reader.GetOpenPositionsAsync();
         var executions = await reader.GetExecutionsAsync();
-        if (positions.Count > 0)
+        Positions.Clear();
+        foreach (var position in positions)
         {
-            Positions.Clear();
-            foreach (var position in positions)
-            {
-                Positions.Add(new PositionRow(position.Code, position.Name, position.Side, $"{position.CurrentQuantity:n0}株", position.Strategy, "未評価", "未評価", "手動登録済み。日次更新後に保有再評価を表示します。", "未算定", "未算定", "未算定", "期限未確認", "未算定", "未算定", "未算定", "未算定", position.ReconciliationStatus, position.PositionId));
-            }
+            var evaluated = position.EvaluationDecision is not null;
+            var evaluationDetail = evaluated ? $"{position.EvaluationOutcome ?? "評価済み"}。保存済みの保有再評価結果です。" : "日次更新後に保有再評価を表示します。";
+            if (position.LatestClose is not null) evaluationDetail += $" 最新確定終値: {position.LatestClose:n4}円（{position.LatestBarDate:yyyy-MM-dd}）。";
+            Positions.Add(new PositionRow(position.Code, position.Name, position.Side, $"{position.CurrentQuantity:n0}株", position.Strategy,
+                position.EvaluationDecision ?? "未評価", position.EvaluationBarDate?.ToString("yyyy-MM-dd") ?? "未評価", evaluationDetail,
+                Amount(position.StopCandidate), Amount(position.TakeProfitCandidate), position.EvaluationDecision == "Hold" ? evaluationDetail : "HOLD理由なし/未評価",
+                position.EarliestRepaymentDate?.ToString("yyyy-MM-dd") ?? "期限未確認", Amount(position.ConfirmedCost), "未算定", "未算定", Amount(position.ReferenceNetProfitAndLoss), position.ReconciliationStatus, position.PositionId, Amount(position.LatestClose)));
         }
-        if (executions.Count > 0)
+        Executions.Clear();
+        foreach (var execution in executions)
         {
-            Executions.Clear();
-            foreach (var execution in executions)
-            {
-                Executions.Add(new ExecutionRow(execution.Code, execution.Name, execution.Side, execution.ExecutionRole == "Open" ? "新規" : "決済", execution.RegistrationSource, execution.ExecutedAt.ToString("yyyy-MM-dd HH:mm zzz"), $"{execution.Price:n4}円", $"{execution.Quantity:n0}株", $"Rev {execution.Revision}（{execution.Status}）", execution.Notes ?? "利用者確認済みの約定監査原票です。", execution.TradeExecutionId));
-            }
+            Executions.Add(new ExecutionRow(execution.Code, execution.Name, execution.Side, execution.ExecutionRole == "Open" ? "新規" : "決済", execution.RegistrationSource, execution.ExecutedAt.ToString("yyyy-MM-dd HH:mm zzz"), $"{execution.Price:n4}円", $"{execution.Quantity:n0}株", $"Rev {execution.Revision}（{execution.Status}）", execution.Notes ?? "利用者確認済みの約定監査原票です。", execution.TradeExecutionId));
         }
     }
 
     public async Task ReloadAiChecksAsync(SwingAdviser.Application.Analysis.IAiCheckOverviewReader reader)
     {
         var overview = await reader.GetOverviewAsync();
-        if (overview.Candidates.Count == 0) return;
         Candidates.Clear();
         foreach (var candidate in overview.Candidates)
         {
-            Candidates.Add(new CandidateRow(candidate.Code, candidate.Name, candidate.Direction, "Entry", candidate.EvaluationBarDate.ToString("yyyy-MM-dd"), "保存済み戦略", candidate.Score?.ToString() ?? "未算定", candidate.Confidence ?? "未算定", "保存済みのテクニカル候補。AI結果は参考情報です。", candidate.AiStatus, candidate.CandidateResultId, candidate.LatestAttemptId, candidate.Verdict, candidate.VerdictAlignment, candidate.Summary));
+            var priceDetail = candidate.LatestClose is null ? "最新確定終値は未取得です。" : $"最新確定終値 {candidate.LatestClose:n4}円（{candidate.LatestBarDate:yyyy-MM-dd}）。";
+            Candidates.Add(new CandidateRow(candidate.Code, candidate.Name, candidate.Direction, "Entry", candidate.EvaluationBarDate.ToString("yyyy-MM-dd"), "保存済み戦略", candidate.Score?.ToString() ?? "未算定", candidate.Confidence ?? "未算定", "保存済みのテクニカル候補。" + priceDetail + " AI結果は参考情報です。", candidate.AiStatus, candidate.CandidateResultId, candidate.LatestAttemptId, candidate.Verdict, candidate.VerdictAlignment, candidate.Summary, candidate.LatestClose is null ? "未取得" : $"{candidate.LatestClose:n4}円 ({candidate.LatestBarDate:yyyy-MM-dd})"));
         }
+        var total = overview.QueuedCount + overview.RunningCount + overview.SucceededCount + overview.FailedCount + overview.TimedOutCount + overview.InsufficientInformationCount + overview.CancelledCount;
+        var active = overview.QueuedCount + overview.RunningCount;
+        AiQueueProgress = new UpdateProgressRow(active > 0 ? "継続中" : total > 0 ? "完了" : "未実行", total == 0 ? 0 : 100d * (total - active) / total, active > 0,
+            $"対象 {total}件  ・  成功 {overview.SucceededCount}件  ・  実行中 {overview.RunningCount}件  ・  待機中 {overview.QueuedCount}件  ・  失敗 {overview.FailedCount + overview.TimedOutCount}件",
+            active > 0
+                ? "AIチェックはバックグラウンドで実行中です。状態と候補一覧は5秒ごとに自動更新します。失敗・timeout・情報不足でも日次分析結果を無効にしません。"
+                : "AIチェックは完了または未実行です。失敗・timeout・情報不足でも日次分析結果を無効にしません。");
     }
+
+    public async Task ReloadDailyUpdateAsync(SwingAdviser.Application.DailyUpdates.IDailyUpdateOverviewReader reader)
+    {
+        var overview = await reader.GetLatestAsync();
+        var percent = overview.TotalSteps == 0 ? 0 : 100d * overview.CompletedSteps / overview.TotalSteps;
+        DailyUpdateProgress = new UpdateProgressRow(overview.Status, percent, overview.Status == "実行中", $"{overview.CompletedSteps} / {overview.TotalSteps} ステップ  ・  成功 {overview.SucceededCount}件  ・  失敗 {overview.FailedCount}件", overview.Detail);
+    }
+
+    public void BeginDisplayReload(string operation)
+    {
+        IsDisplayLoading = true;
+        if (!IsUpdateRunning) StatusMessage = $"{operation}を読み込んでいます。";
+    }
+
+    public void EndDisplayReload(bool succeeded)
+    {
+        IsDisplayLoading = false;
+        if (succeeded && !IsUpdateRunning) StatusMessage = "保存済みの分析結果を表示しています。日次分析更新は利用者が明示的に開始します。";
+    }
+
+    /// <summary>A run marked Running in SQLite after application shutdown cannot still be executing in this window.</summary>
+    public void MarkPreviousDailyUpdateAsInterrupted()
+    {
+        if (DailyUpdateProgress.Status != "実行中" || IsUpdateRunning) return;
+        DailyUpdateProgress = DailyUpdateProgress with
+        {
+            Status = "前回中断",
+            IsIndeterminate = false,
+            Detail = $"前回のアプリ終了により更新は中断されました。{DailyUpdateProgress.Detail} 新しい日次分析更新は安全に開始できます。",
+        };
+    }
+
+    public void BeginDailyUpdate()
+    {
+        IsUpdateRunning = true;
+        StatusMessage = "日次分析更新を開始しました。完了後、候補・保有・AI状態を実データから再読込します。";
+        _dailyUpdateDetailBeforeHeartbeat = "ステップ 1/11: 外部データを更新する準備をしています。中止できます。";
+        DailyUpdateProgress = new UpdateProgressRow("実行中", 0, true, "0 / 11 ステップ  ・  成功 0件  ・  失敗 0件", _dailyUpdateDetailBeforeHeartbeat);
+    }
+
+    public void ReportDailyUpdate(SwingAdviser.Application.DailyUpdates.DailyUpdateStepProgress progress)
+    {
+        _dailyUpdateDetailBeforeHeartbeat = progress.Detail ?? "日次分析更新を実行しています。";
+        var workFraction = progress.TotalWorkItems is > 0
+            ? Math.Clamp((double)(progress.CompletedWorkItems ?? 0) / progress.TotalWorkItems.Value, 0, 1)
+            : 0;
+        var currentWork = progress.TotalWorkItems is > 0
+            ? $"  ・  銘柄 {(progress.CompletedWorkItems ?? 0):n0} / {progress.TotalWorkItems.Value:n0}"
+            : string.Empty;
+        DailyUpdateProgress = new UpdateProgressRow("実行中", 100d * (progress.CompletedSteps + workFraction) / progress.TotalSteps, progress.TotalWorkItems is not > 0,
+            $"{progress.CompletedSteps} / {progress.TotalSteps} ステップ{currentWork}  ・  成功 {progress.SucceededCount}件  ・  失敗 {progress.FailedCount}件", _dailyUpdateDetailBeforeHeartbeat);
+    }
+
+    public void ReportDailyUpdateHeartbeat(TimeSpan elapsed)
+    {
+        if (!IsUpdateRunning) return;
+        DailyUpdateProgress = DailyUpdateProgress with
+        {
+            Detail = $"{_dailyUpdateDetailBeforeHeartbeat} 経過 {Math.Floor(elapsed.TotalMinutes):n0}分{elapsed.Seconds:00}秒。中止できます。",
+        };
+    }
+
+    public void EndDailyUpdate(string message)
+    {
+        IsUpdateRunning = false;
+        StatusMessage = message;
+    }
+
+    public void ReportDisplayReloadFailure()
+    {
+        IsUpdateRunning = false;
+        StatusMessage = "保存済みの分析表示を更新できませんでした。更新履歴を確認し、必要ならアプリを再起動してください。";
+    }
+
+    private static string Amount(decimal? value) => value is null ? "未算定" : $"{value.Value:n4}円";
 }
 
 public sealed record CandidateRow(
@@ -111,7 +163,8 @@ public sealed record CandidateRow(
     int? LatestAiAttemptId = null,
     string? AiVerdict = null,
     string? AiVerdictAlignment = null,
-    string? AiSummary = null)
+    string? AiSummary = null,
+    string LatestClose = "未取得")
 {
     public bool IsMock => !CandidateResultId.HasValue;
     public bool CanQueueAiCheck => CandidateResultId.HasValue && AiStatus == "未実行";
@@ -179,7 +232,8 @@ public sealed record PositionRow(
     string PriceProfitAndLoss,
     string NetReferenceProfitAndLoss,
     string ReconciliationStatus,
-    int? PositionId = null);
+    int? PositionId = null,
+    string LatestClose = "未取得");
 
 public sealed record ExecutionRow(
     string Code,

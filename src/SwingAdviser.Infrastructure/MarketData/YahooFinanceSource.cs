@@ -5,9 +5,11 @@ using System.Text.RegularExpressions;
 namespace SwingAdviser.Infrastructure.MarketData;
 
 /// <summary>Yahoo Finance chart and quote client. Provider data remains isolated from application logic.</summary>
-public sealed class YahooFinanceClient : IYahooFinanceSource
+public sealed class YahooFinanceClient : IIncrementalYahooFinanceSource
 {
     private static readonly Regex SafeCode = new("^[0-9A-Za-z]+$", RegexOptions.CultureInvariant);
+    private static readonly SemaphoreSlim ChartRequestStartGate = new(1, 1);
+    private static DateTime _nextChartRequestStartUtc = DateTime.MinValue;
     private readonly HttpClient _httpClient;
     private readonly Uri _baseUri;
 
@@ -18,11 +20,18 @@ public sealed class YahooFinanceClient : IYahooFinanceSource
     }
 
     public async Task<YahooChartSourceSnapshot> FetchChartAsync(string code, CancellationToken cancellationToken)
+        => await FetchChartAsync(code, null, cancellationToken);
+
+    public async Task<YahooChartSourceSnapshot> FetchChartAsync(string code, DateTime? periodStartUtc, CancellationToken cancellationToken)
     {
         var symbol = ToSymbol(code);
-        var uri = new Uri(_baseUri, $"v8/finance/chart/{symbol}?period1=0&period2={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}&interval=1d&events=div%2Csplits");
+        var period1 = periodStartUtc is null
+            ? "0"
+            : new DateTimeOffset(DateTime.SpecifyKind(periodStartUtc.Value, DateTimeKind.Utc)).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+        var uri = new Uri(_baseUri, $"v8/finance/chart/{symbol}?period1={period1}&period2={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}&interval=1d&events=div%2Csplits");
+        await WaitForChartRequestStartAsync(cancellationToken);
         var body = await HttpFetch.ReadTextAsync(_httpClient, uri, cancellationToken);
-        return YahooFinanceParser.ParseChart(body);
+        return YahooFinanceParser.ParseChart(body, fullHistoryRequested: periodStartUtc is null);
     }
 
     public async Task<FundamentalDataSourceRecord> FetchFundamentalsAsync(string code, CancellationToken cancellationToken)
@@ -41,11 +50,31 @@ public sealed class YahooFinanceClient : IYahooFinanceSource
         }
         return $"{code.ToUpperInvariant()}.T";
     }
+
+    /// <summary>
+    /// Keeps concurrent downloads in flight while spacing their starts at the same five-per-second
+    /// cadence used by the reference scanner, reducing avoidable Yahoo rate-limit responses.
+    /// </summary>
+    private static async Task WaitForChartRequestStartAsync(CancellationToken cancellationToken)
+    {
+        await ChartRequestStartGate.WaitAsync(cancellationToken);
+        try
+        {
+            var now = DateTime.UtcNow;
+            var delay = _nextChartRequestStartUtc - now;
+            if (delay > TimeSpan.Zero) await Task.Delay(delay, cancellationToken);
+            _nextChartRequestStartUtc = DateTime.UtcNow.AddMilliseconds(200);
+        }
+        finally
+        {
+            ChartRequestStartGate.Release();
+        }
+    }
 }
 
 public static class YahooFinanceParser
 {
-    public static YahooChartSourceSnapshot ParseChart(string json)
+    public static YahooChartSourceSnapshot ParseChart(string json, bool fullHistoryRequested = true)
     {
         try
         {
@@ -95,7 +124,7 @@ public static class YahooFinanceParser
                 throw new ExternalDataFetchException("InvalidData", "Yahoo chart response contained no valid daily bars.");
             }
 
-            return new YahooChartSourceSnapshot(bars, ParseCorporateActions(chart), !containsInvalidBar);
+            return new YahooChartSourceSnapshot(bars, ParseCorporateActions(chart), fullHistoryRequested && !containsInvalidBar);
         }
         catch (ExternalDataFetchException)
         {

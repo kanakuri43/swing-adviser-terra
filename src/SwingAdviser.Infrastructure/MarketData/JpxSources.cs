@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using ExcelDataReader;
 
 namespace SwingAdviser.Infrastructure.MarketData;
 
@@ -22,8 +23,11 @@ public sealed class JpxListedIssuesClient : IJpxListedIssuesSource
 
     public async Task<ListedInstrumentSourceSnapshot> FetchAsync(CancellationToken cancellationToken)
     {
-        var body = await HttpFetch.ReadTextAsync(_httpClient, _sourceUri, cancellationToken);
-        return new ListedInstrumentSourceSnapshot(JpxListedIssuesParser.Parse(body), JpxListedIssuesParser.ComputeSourceFileHash(body));
+        var body = await HttpFetch.ReadBytesAsync(_httpClient, _sourceUri, cancellationToken);
+        var records = JpxListedIssuesParser.IsExcelWorkbook(_sourceUri, body)
+            ? JpxListedIssuesParser.ParseExcel(body)
+            : JpxListedIssuesParser.Parse(Encoding.UTF8.GetString(body));
+        return new ListedInstrumentSourceSnapshot(records, JpxListedIssuesParser.ComputeSourceFileHash(body));
     }
 }
 
@@ -71,8 +75,36 @@ public static class JpxListedIssuesParser
         return result;
     }
 
-    public static string ComputeSourceFileHash(string text)
-        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
+    /// <summary>Parses the official JPX data_j.xls format used by the existing Stock Simulator application.</summary>
+    public static IReadOnlyList<ListedInstrumentSourceRecord> ParseExcel(ReadOnlyMemory<byte> content)
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        using var stream = new MemoryStream(content.ToArray(), writable: false);
+        using var reader = ExcelReaderFactory.CreateReader(stream);
+        if (!reader.Read()) throw new ExternalDataFetchException("InvalidData", "JPX listed-issues workbook has no header row.");
+        var headers = Enumerable.Range(0, reader.FieldCount).Select(index => reader.GetValue(index)?.ToString() ?? string.Empty).ToArray();
+        var codeColumn = FindWorkbookColumn(headers, "コード", "code");
+        var nameColumn = FindWorkbookColumn(headers, "銘柄名", "name");
+        var segmentColumn = FindWorkbookColumn(headers, "市場・商品区分", "市場商品区分", "市場区分", "marketsegment");
+        var result = new List<ListedInstrumentSourceRecord>();
+        while (reader.Read())
+        {
+            var code = reader.GetValue(codeColumn)?.ToString()?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(code)) continue;
+            var name = reader.GetValue(nameColumn)?.ToString()?.Trim() ?? string.Empty;
+            var (segment, type) = ClassifySegmentAndType(reader.GetValue(segmentColumn)?.ToString()?.Trim() ?? string.Empty);
+            result.Add(new ListedInstrumentSourceRecord(code, name, segment, type, "Listed", type == "DomesticCommonStock" && segment is "Prime" or "Standard" or "Growth" ? "Eligible" : "Ineligible"));
+        }
+        if (result.Count == 0) throw new ExternalDataFetchException("InvalidData", "JPX listed-issues workbook did not contain a usable instrument code.");
+        return result;
+    }
+
+    public static string ComputeSourceFileHash(string text) => ComputeSourceFileHash(Encoding.UTF8.GetBytes(text));
+    public static string ComputeSourceFileHash(ReadOnlySpan<byte> content) => Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant();
+    internal static bool IsExcelWorkbook(Uri sourceUri, ReadOnlySpan<byte> content)
+        => sourceUri.AbsolutePath.EndsWith(".xls", StringComparison.OrdinalIgnoreCase)
+           || sourceUri.AbsolutePath.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
+           || content.Length >= 8 && content[..8].SequenceEqual(new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 });
 
     private static (string Segment, string Type) ClassifySegmentAndType(string value)
     {
@@ -87,6 +119,18 @@ public static class JpxListedIssuesParser
             : "Other";
         return (segment, type);
     }
+
+    private static int FindWorkbookColumn(IReadOnlyList<string> headers, params string[] alternatives)
+    {
+        for (var index = 0; index < headers.Count; index++)
+        {
+            var normalized = NormalizeHeader(headers[index]);
+            if (alternatives.Any(alternative => NormalizeHeader(alternative) == normalized)) return index;
+        }
+        throw new ExternalDataFetchException("InvalidData", $"Required JPX column is missing: {alternatives[0]}.");
+    }
+
+    private static string NormalizeHeader(string value) => value.Trim().TrimStart('\uFEFF').Replace(" ", string.Empty).Replace("　", string.Empty).Replace("・", string.Empty).ToLowerInvariant();
 }
 
 /// <summary>Parses the JPX official margin/loanable-issues page without assuming missing issues are ineligible.</summary>
@@ -173,6 +217,20 @@ public static class JpxMarginIssuesParser
 
 internal static class HttpFetch
 {
+    public static async Task<byte[]> ReadBytesAsync(HttpClient httpClient, Uri uri, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                throw new ExternalDataFetchException(response.StatusCode == (HttpStatusCode)429 ? "RateLimit" : "HttpError", $"External source returned HTTP {(int)response.StatusCode}.");
+            return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        }
+        catch (ExternalDataFetchException) { throw; }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw new ExternalDataFetchException("Timeout", "External source request timed out."); }
+        catch (HttpRequestException exception) { throw new ExternalDataFetchException("NetworkError", "External source request failed.", exception); }
+    }
+
     public static async Task<string> ReadTextAsync(HttpClient httpClient, Uri uri, CancellationToken cancellationToken)
     {
         try

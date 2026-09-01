@@ -6,6 +6,7 @@ using SwingAdviser.Application.Analysis;
 using SwingAdviser.Domain.Analysis;
 using SwingAdviser.Domain.MarketData;
 using SwingAdviser.Infrastructure.Persistence;
+using SwingAdviser.Infrastructure.MarketData;
 
 namespace SwingAdviser.Infrastructure.Analysis;
 
@@ -13,7 +14,13 @@ namespace SwingAdviser.Infrastructure.Analysis;
 public sealed class EfTechnicalScanStore : ITechnicalScanStore
 {
     private readonly SwingAdviserDbContext _context;
-    public EfTechnicalScanStore(SwingAdviserDbContext context) => _context = context ?? throw new ArgumentNullException(nameof(context));
+    private readonly int _historyLookbackYears;
+
+    public EfTechnicalScanStore(SwingAdviserDbContext context, int historyLookbackYears = 5)
+    {
+        _context = context ?? throw new ArgumentNullException(nameof(context));
+        _historyLookbackYears = Math.Clamp(historyLookbackYears, 1, 10);
+    }
 
     public async Task<IReadOnlyList<TechnicalScanInstrument>> GetEligibleUniverseAsync(DateOnly date, DateTime analyzedAtUtc, CancellationToken cancellationToken)
     {
@@ -40,17 +47,17 @@ public sealed class EfTechnicalScanStore : ITechnicalScanStore
 
     public async Task<PointInTimeAnalysisSeries> BuildSeriesAsync(int instrumentId, DateOnly date, DateTime analyzedAtUtc, int required, CancellationToken cancellationToken)
     {
-        var allBars = await _context.DailyBars.Where(item => item.InstrumentId == instrumentId && item.TradingDate <= date && item.FetchedAtUtc <= analyzedAtUtc).ToListAsync(cancellationToken);
+        var historyStart = TechnicalHistoryWindow.GetStart(date, required, _historyLookbackYears);
+        var allBars = await _context.DailyBars.Where(item => item.InstrumentId == instrumentId && item.TradingDate >= historyStart && item.TradingDate <= date && item.FetchedAtUtc <= analyzedAtUtc).ToListAsync(cancellationToken);
         var bars = allBars.GroupBy(item => item.TradingDate).Select(group => group.OrderByDescending(item => item.Revision).First()).OrderBy(item => item.TradingDate).ToArray();
-        var actions = (await _context.CorporateActions.Where(item => item.InstrumentId == instrumentId && item.EffectiveDate <= date && item.AvailableAtUtc <= analyzedAtUtc).ToListAsync(cancellationToken))
+        var actions = (await _context.CorporateActions.Where(item => item.InstrumentId == instrumentId && item.EffectiveDate >= historyStart && item.EffectiveDate <= date && item.AvailableAtUtc <= analyzedAtUtc).ToListAsync(cancellationToken))
             .GroupBy(item => item.SourceEventId).Select(group => group.OrderByDescending(item => item.Revision).First()).OrderBy(item => item.EffectiveDate).ThenBy(item => item.SourceEventId, StringComparer.Ordinal).ToArray();
-        var coverage = await _context.DailyBarHistoryCoverages.Where(item => item.InstrumentId == instrumentId && item.Source == "YahooFinanceChartApiV8" && item.ObservedAtUtc <= analyzedAtUtc).OrderByDescending(item => item.Revision).FirstOrDefaultAsync(cancellationToken);
-        var status = DetermineStatus(bars, actions, coverage, date, required);
+        var status = DetermineStatus(bars, actions, date, required);
         var adjusted = status == "Ok" ? Adjust(bars, actions, date, out status) : Array.Empty<AdjustedDailyBar>();
         var priceHash = Hash(string.Join("\n", bars.Select(item => $"{item.TradingDate:yyyy-MM-dd}|{item.DailyBarId}")));
         var actionHash = Hash(string.Join("\n", actions.Select(item => $"{item.EffectiveDate:yyyy-MM-dd}|{item.SourceEventId}|{item.CorporateActionId}")));
         var first = bars.FirstOrDefault()?.TradingDate ?? date; var last = bars.LastOrDefault()?.TradingDate ?? date;
-        var manifestHash = Hash(JsonSerializer.Serialize(new { schema = "analysis-input-manifest-v1", instrumentId, date, analyzedAtUtc, first, last, count = bars.Length, priceHash, actionHash, selection = "pit-revision-v1" }));
+        var manifestHash = Hash(JsonSerializer.Serialize(new { schema = "analysis-input-manifest-v2", instrumentId, date, analyzedAtUtc, historyStart, first, last, count = bars.Length, priceHash, actionHash, selection = "pit-revision-finite-window-v2" }));
         var manifest = await _context.AnalysisInputManifests.SingleOrDefaultAsync(item => item.InstrumentId == instrumentId && item.EvaluationBarDate == date && item.AnalyzedAtUtc == analyzedAtUtc && item.ManifestHash == manifestHash, cancellationToken);
         if (manifest is null)
         {
@@ -70,22 +77,38 @@ public sealed class EfTechnicalScanStore : ITechnicalScanStore
     }
     public async Task SaveCandidatesAsync(int indicatorId, int instrumentId, IReadOnlyList<CandidateEvaluation> candidates, DateTime createdAtUtc, CancellationToken cancellationToken)
     {
-        _context.CandidateResults.AddRange(candidates.Select(item => new CandidateResult { IndicatorResultId = indicatorId, InstrumentId = instrumentId, Direction = item.Direction, SignalPurpose = "Entry", Matched = item.Matched, Score = item.Score, ConfidenceLabel = item.ConfidenceLabel, CandidateScoringEngineVersion = TechnicalStrategyParameters.CandidateEngineVersion, ScoreComponentsJson = item.ComponentsJson, CreatedAtUtc = createdAtUtc }));
-        await _context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            _context.CandidateResults.AddRange(candidates.Select(item => new CandidateResult { IndicatorResultId = indicatorId, InstrumentId = instrumentId, Direction = item.Direction, SignalPurpose = "Entry", Matched = item.Matched, Score = item.Score, ConfidenceLabel = item.ConfidenceLabel, CandidateScoringEngineVersion = TechnicalStrategyParameters.CandidateEngineVersion, ScoreComponentsJson = item.ComponentsJson, CreatedAtUtc = createdAtUtc }));
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        finally
+        {
+            // The manifest contains hundreds to thousands of bars. Retaining every processed
+            // instrument in one long-lived context makes later scan iterations progressively slower.
+            _context.ChangeTracker.Clear();
+        }
     }
     public async Task SaveExclusionAsync(int runId, int instrumentId, string reason, int available, int required, CancellationToken cancellationToken)
     {
-        _context.ScanExclusions.Add(new ScanExclusion { ScanRunId = runId, InstrumentId = instrumentId, Reason = reason, HistoryAvailableCount = available, HistoryRequiredCount = required }); await _context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            _context.ScanExclusions.Add(new ScanExclusion { ScanRunId = runId, InstrumentId = instrumentId, Reason = reason, HistoryAvailableCount = available, HistoryRequiredCount = required });
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        finally
+        {
+            _context.ChangeTracker.Clear();
+        }
     }
     public async Task CompleteScanRunAsync(int runId, string status, int succeeded, int failed, DateTime completed, CancellationToken cancellationToken)
     {
         var entity = await _context.ScanRuns.SingleAsync(item => item.ScanRunId == runId, cancellationToken); entity.Status = status; entity.SucceededCount = succeeded; entity.FailedCount = failed; entity.CompletedAtUtc = completed; await _context.SaveChangesAsync(cancellationToken);
     }
 
-    private static string DetermineStatus(DailyBar[] bars, CorporateAction[] actions, DailyBarHistoryCoverage? coverage, DateOnly date, int required)
+    private static string DetermineStatus(DailyBar[] bars, CorporateAction[] actions, DateOnly date, int required)
     {
         if (bars.Length < required) return "InsufficientHistory";
-        if (coverage is null || !coverage.FullHistoryConfirmed || coverage.Status != "Complete") return "HistoryIncomplete";
         if (bars[^1].TradingDate != date || bars.Any(item => item.Status is not ("Final" or "Corrected"))) return "InvalidData";
         if (actions.Any(item => item.Status == "PointInTimeUnverified")) return "PointInTimeUnverified";
         if (actions.Any(item => item.Status == "ReconciliationRequired" || item.ActionType == "Unsupported")) return "ReconciliationRequired";

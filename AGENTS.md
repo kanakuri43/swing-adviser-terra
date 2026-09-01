@@ -17,6 +17,8 @@
 - [`docs/risk-management.md`](docs/risk-management.md) — 損切/利確ルール（ATR倍数・R倍率・テクニカル反転条件）
 - [`docs/ai-analysis.md`](docs/ai-analysis.md) — AI チェック（Codex CLI）の調査項目・結果 schema、Codex CLI 実行設定
 - [`docs/database-schema.md`](docs/database-schema.md) — SQLite業務テーブル、列、キー、revision、監査・point-in-time制約
+- [`docs/runtime-configuration.md`](docs/runtime-configuration.md) — 日次更新・AIチェックの実行時環境変数
+- [`docs/operations-tutorial.md`](docs/operations-tutorial.md) — 初回設定、日次運用、手動約定記録、バックアップの手順
 
 ## Non-negotiable rules
 - 証券会社へ注文を送信しない。自動売買を実装しない。

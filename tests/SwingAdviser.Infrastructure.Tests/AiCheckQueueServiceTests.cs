@@ -10,6 +10,19 @@ namespace SwingAdviser.Infrastructure.Tests;
 public class AiCheckQueueServiceTests
 {
     [Fact]
+    public void CodexCliStartInfo_UsesUserProfileAsHomeOnlyWhenHomeIsMissing()
+    {
+        var request = new AiCliRequest("codex.exe", null, null, [], "test prompt", TimeSpan.FromSeconds(5));
+
+        var fallback = CodexCliExecutor.CreateStartInfo(request, null, @"C:\\Users\\test-user", @"C:\\Temp\\ai-result.json");
+        var configured = CodexCliExecutor.CreateStartInfo(request, @"D:\\custom-home", @"C:\\Users\\test-user", @"C:\\Temp\\ai-result.json");
+
+        Assert.Equal(@"C:\\Users\\test-user", fallback.Environment["HOME"]);
+        Assert.Equal(@"D:\\custom-home", configured.Environment["HOME"]);
+        Assert.Equal(["exec", "--output-last-message", @"C:\\Temp\\ai-result.json", "test prompt"], fallback.ArgumentList);
+    }
+
+    [Fact]
     public async Task CliFailure_CreatesTerminalAttemptWithoutInvalidatingTechnicalCandidate()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"swing-adviser-ai-test-{Guid.NewGuid():N}.db");
@@ -112,19 +125,46 @@ public class AiCheckQueueServiceTests
         }
     }
 
-    private static async Task<int> SeedCandidateAsync(SwingAdviserDbContext context)
+    [Fact]
+    public async Task Overview_OnlyShowsCandidatesFromTheLatestCompletedScan()
     {
-        var timestamp = new DateTime(2026, 8, 31, 1, 0, 0, DateTimeKind.Utc);
-        var instrument = new Instrument { FirstObservedAtUtc = timestamp };
+        var databasePath = Path.Combine(Path.GetTempPath(), $"swing-adviser-ai-test-{Guid.NewGuid():N}.db");
+        var connectionString = $"Data Source={databasePath}";
+        try
+        {
+            await using (var migrationContext = CreateContext(connectionString)) await migrationContext.Database.MigrateAsync();
+            await using (var seed = CreateContext(connectionString))
+            {
+                await SeedCandidateAsync(seed, new DateTime(2026, 8, 31, 1, 0, 0, DateTimeKind.Utc), "Running", "1111");
+                await SeedCandidateAsync(seed, new DateTime(2026, 8, 31, 2, 0, 0, DateTimeKind.Utc), "Succeeded", "2222");
+            }
+
+            var service = new AiCheckQueueService(() => CreateContext(connectionString), new FailedExecutor(), new AiCheckOptions("codex", null, null, TimeSpan.FromSeconds(5), [], MaximumConcurrency: 2));
+
+            var overview = await service.GetOverviewAsync();
+
+            var candidate = Assert.Single(overview.Candidates);
+            Assert.Equal("2222", candidate.Code);
+        }
+        finally
+        {
+            try { if (File.Exists(databasePath)) File.Delete(databasePath); } catch (IOException) { }
+        }
+    }
+
+    private static async Task<int> SeedCandidateAsync(SwingAdviserDbContext context, DateTime? timestamp = null, string scanStatus = "Succeeded", string code = "7203")
+    {
+        var observedAt = timestamp ?? new DateTime(2026, 8, 31, 1, 0, 0, DateTimeKind.Utc);
+        var instrument = new Instrument { FirstObservedAtUtc = observedAt };
         context.Instruments.Add(instrument); await context.SaveChangesAsync();
-        context.InstrumentMasterRevisions.Add(new InstrumentMasterRevision { InstrumentId = instrument.InstrumentId, Code = "7203", Name = "テスト銘柄", MarketSegment = "Prime", InstrumentType = "Equity", ListedStatus = "Listed", ScanEligibility = "Eligible", EffectiveAtDate = new DateOnly(2026, 8, 31), AvailableAtUtc = timestamp, Source = "Test", SourceFileHash = "master", RecordedAtUtc = timestamp, Revision = 1, Status = "Active" });
-        var manifest = new AnalysisInputManifest { InstrumentId = instrument.InstrumentId, EvaluationBarDate = new DateOnly(2026, 8, 31), AnalyzedAtUtc = timestamp, FirstBarDate = new DateOnly(2025, 1, 1), LastBarDate = new DateOnly(2026, 8, 31), BarCount = 250, PriceRevisionSetHash = "price", CorporateActionSetHash = "actions", ManifestHash = "manifest", CreatedAtUtc = timestamp };
-        var strategy = new StrategyParameterSnapshot { StrategyKey = "candidate", StrategyVersion = "v1", IndicatorEngineVersion = "engine", CandidateScoringEngineVersion = "candidate-scoring-engine-v1", NormalizedParametersJson = "{}", ContentSha256 = "strategy", CreatedAtUtc = timestamp };
-        var scan = new ScanRun { RunType = "Manual", UniverseDefinitionHash = "universe", StartedAtUtc = timestamp, Status = "Succeeded", TotalInstruments = 1, SucceededCount = 1, FailedCount = 0 };
+        context.InstrumentMasterRevisions.Add(new InstrumentMasterRevision { InstrumentId = instrument.InstrumentId, Code = code, Name = "テスト銘柄", MarketSegment = "Prime", InstrumentType = "Equity", ListedStatus = "Listed", ScanEligibility = "Eligible", EffectiveAtDate = new DateOnly(2026, 8, 31), AvailableAtUtc = observedAt, Source = "Test", SourceFileHash = "master", RecordedAtUtc = observedAt, Revision = 1, Status = "Active" });
+        var manifest = new AnalysisInputManifest { InstrumentId = instrument.InstrumentId, EvaluationBarDate = new DateOnly(2026, 8, 31), AnalyzedAtUtc = observedAt, FirstBarDate = new DateOnly(2025, 1, 1), LastBarDate = new DateOnly(2026, 8, 31), BarCount = 250, PriceRevisionSetHash = "price", CorporateActionSetHash = "actions", ManifestHash = "manifest", CreatedAtUtc = observedAt };
+        var strategy = new StrategyParameterSnapshot { StrategyKey = "candidate", StrategyVersion = "v1", IndicatorEngineVersion = "engine", CandidateScoringEngineVersion = "candidate-scoring-engine-v1", NormalizedParametersJson = "{}", ContentSha256 = $"strategy-{code}", CreatedAtUtc = observedAt };
+        var scan = new ScanRun { RunType = "Manual", UniverseDefinitionHash = "universe", StartedAtUtc = observedAt, CompletedAtUtc = scanStatus == "Running" ? null : observedAt, Status = scanStatus, TotalInstruments = 1, SucceededCount = 1, FailedCount = 0 };
         context.AddRange(manifest, strategy, scan); await context.SaveChangesAsync();
-        var indicator = new IndicatorResult { ScanRunId = scan.ScanRunId, InstrumentId = instrument.InstrumentId, EvaluationBarDate = new DateOnly(2026, 8, 31), AnalyzedAtUtc = timestamp, ManifestId = manifest.ManifestId, StrategyParameterSnapshotId = strategy.StrategyParameterSnapshotId, DataStatus = "Ok", HistoryAvailableCount = 250, HistoryRequiredCount = 201, VolumeRatioStatus = "Ok", RawValuesJson = "{}", CreatedAtUtc = timestamp };
+        var indicator = new IndicatorResult { ScanRunId = scan.ScanRunId, InstrumentId = instrument.InstrumentId, EvaluationBarDate = new DateOnly(2026, 8, 31), AnalyzedAtUtc = observedAt, ManifestId = manifest.ManifestId, StrategyParameterSnapshotId = strategy.StrategyParameterSnapshotId, DataStatus = "Ok", HistoryAvailableCount = 250, HistoryRequiredCount = 201, VolumeRatioStatus = "Ok", RawValuesJson = "{}", CreatedAtUtc = observedAt };
         context.IndicatorResults.Add(indicator); await context.SaveChangesAsync();
-        var candidate = new CandidateResult { IndicatorResultId = indicator.IndicatorResultId, InstrumentId = instrument.InstrumentId, Direction = "Long", SignalPurpose = "Entry", Matched = true, Score = 80, ConfidenceLabel = "High", CandidateScoringEngineVersion = "candidate-scoring-engine-v1", ScoreComponentsJson = "{}", CreatedAtUtc = timestamp };
+        var candidate = new CandidateResult { IndicatorResultId = indicator.IndicatorResultId, InstrumentId = instrument.InstrumentId, Direction = "Long", SignalPurpose = "Entry", Matched = true, Score = 80, ConfidenceLabel = "High", CandidateScoringEngineVersion = "candidate-scoring-engine-v1", ScoreComponentsJson = "{}", CreatedAtUtc = observedAt };
         context.CandidateResults.Add(candidate); await context.SaveChangesAsync();
         return candidate.CandidateResultId;
     }

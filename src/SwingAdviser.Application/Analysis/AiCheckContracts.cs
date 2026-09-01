@@ -26,7 +26,7 @@ public sealed record AiCliResponse(string Stdout, string Stderr, int? ExitCode, 
 public enum AiCliCompletion { Completed, TimedOut, Cancelled, FailedToStart }
 public interface IAiCliExecutor { Task<AiCliResponse> ExecuteAsync(AiCliRequest request, CancellationToken cancellationToken); }
 
-public sealed record AiCandidateOverview(int CandidateResultId, string Code, string Name, string Direction, DateOnly EvaluationBarDate, int? Score, string? Confidence, string AiStatus, int? LatestAttemptId, bool IsStale, string? Verdict, string? VerdictAlignment, string? Summary);
+public sealed record AiCandidateOverview(int CandidateResultId, string Code, string Name, string Direction, DateOnly EvaluationBarDate, int? Score, string? Confidence, string AiStatus, int? LatestAttemptId, bool IsStale, string? Verdict, string? VerdictAlignment, string? Summary, DateOnly? LatestBarDate, decimal? LatestClose);
 public sealed record AiQueueOverview(int QueuedCount, int RunningCount, int SucceededCount, int FailedCount, int TimedOutCount, int InsufficientInformationCount, int CancelledCount, IReadOnlyList<AiCandidateOverview> Candidates);
 public interface IAiCheckOverviewReader { Task<AiQueueOverview> GetOverviewAsync(CancellationToken cancellationToken = default); }
 public sealed record AiQueueActionResult(int QueuedCount, IReadOnlyList<int> RejectedCandidateResultIds);

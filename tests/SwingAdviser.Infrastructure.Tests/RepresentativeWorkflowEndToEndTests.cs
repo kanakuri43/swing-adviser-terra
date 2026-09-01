@@ -78,7 +78,8 @@ public class RepresentativeWorkflowEndToEndTests
                     TakeProfitPrice = 120m,
                     PartialTakeProfitFraction = .5m,
                     EffectiveAtUtc = openedAt.UtcDateTime,
-                    RecordedAtUtc = DateTime.UtcNow,
+                    // A point-in-time re-evaluation must not see a plan recorded after its session.
+                    RecordedAtUtc = openedAt.UtcDateTime,
                     Status = "Effective",
                 });
                 context.DailyBars.Add(new DailyBar
@@ -130,7 +131,7 @@ public class RepresentativeWorkflowEndToEndTests
         }
     }
 
-    private static async Task<SeedIds> SeedCandidateAsync(string connectionString)
+    internal static async Task<SeedIds> SeedCandidateAsync(string connectionString)
     {
         await using var context = CreateContext(connectionString);
         var timestamp = new DateTime(2026, 8, 31, 1, 0, 0, DateTimeKind.Utc);
@@ -164,7 +165,7 @@ public class RepresentativeWorkflowEndToEndTests
 
     private static SwingAdviserDbContext CreateContext(string connectionString) => new(new DbContextOptionsBuilder<SwingAdviserDbContext>().UseSqlite(connectionString).UseSnakeCaseNamingConvention().Options);
 
-    private sealed record SeedIds(int InstrumentId, int CandidateResultId, int IndicatorResultId, int StrategyParameterSnapshotId);
+    internal sealed record SeedIds(int InstrumentId, int CandidateResultId, int IndicatorResultId, int StrategyParameterSnapshotId);
 
     private sealed class SucceededExecutor : IAiCliExecutor
     {

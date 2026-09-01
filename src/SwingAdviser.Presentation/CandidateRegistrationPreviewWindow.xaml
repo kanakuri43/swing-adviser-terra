@@ -58,11 +58,15 @@
                 </DataGrid>
             </StackPanel>
         </Expander>
-        <TextBlock Grid.Row="7" Margin="0,12,0,0" Foreground="#B00020" TextWrapping="Wrap" Text="{Binding ValidationMessage}" />
+        <StackPanel Grid.Row="7" Margin="0,12,0,0">
+            <ProgressBar x:Name="SavingProgress" Height="5" IsIndeterminate="True" Visibility="Collapsed" />
+            <TextBlock x:Name="SavingMessage" Margin="0,6,0,0" Foreground="#164B7A" TextWrapping="Wrap" Visibility="Collapsed" Text="約定監査原票を保存しています。" />
+            <TextBlock Margin="0,6,0,0" Foreground="#B00020" TextWrapping="Wrap" Text="{Binding ValidationMessage}" />
+        </StackPanel>
         <StackPanel Grid.Row="8" Margin="0,14,0,0" HorizontalAlignment="Right" Orientation="Horizontal">
             <CheckBox Margin="0,0,14,0" VerticalAlignment="Center" Content="証券会社の約定通知を確認しました" IsChecked="{Binding UserConfirmed}" />
-            <Button Margin="0,0,8,0" Padding="12,5" Click="ConfirmAndSave" Content="内容を確認して保存" />
-            <Button Padding="12,5" IsCancel="True" Content="取消" />
+            <Button x:Name="SaveButton" Margin="0,0,8,0" Padding="12,5" Click="ConfirmAndSave" Content="内容を確認して保存" />
+            <Button x:Name="CancelButton" Padding="12,5" IsCancel="True" Content="取消" />
         </StackPanel>
     </Grid>
 </mah:MetroWindow>

@@ -29,6 +29,10 @@ public partial class CandidateRegistrationPreviewWindow : MetroWindow
     {
         if (!_viewModel.TryBuildRequest(out var summary)) return;
         if (MessageBox.Show(this, summary + "\n\nこの内容を保存しますか？", "約定内容の確認", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        SaveButton.IsEnabled = false;
+        CancelButton.IsEnabled = false;
+        SavingProgress.Visibility = Visibility.Visible;
+        SavingMessage.Visibility = Visibility.Visible;
         try
         {
             await _viewModel.SaveAsync();
@@ -38,6 +42,13 @@ public partial class CandidateRegistrationPreviewWindow : MetroWindow
         catch (Exception exception)
         {
             _viewModel.ValidationMessage = exception.Message;
+        }
+        finally
+        {
+            SaveButton.IsEnabled = true;
+            CancelButton.IsEnabled = true;
+            SavingProgress.Visibility = Visibility.Collapsed;
+            SavingMessage.Visibility = Visibility.Collapsed;
         }
     }
 }

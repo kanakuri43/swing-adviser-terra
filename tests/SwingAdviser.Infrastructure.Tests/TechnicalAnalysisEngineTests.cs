@@ -84,7 +84,7 @@ public class TechnicalAnalysisEngineTests
     }
 
     [Fact]
-    public async Task PointInTimeStore_ReusesAnIdenticalFrozenManifestOnRetry()
+    public async Task PointInTimeStore_UsesFiniteWindowWithoutRequiringFullListingHistory()
     {
         using var connection = OpenMigratedConnection();
         await using var context = CreateContext(connection);
@@ -93,7 +93,6 @@ public class TechnicalAnalysisEngineTests
         context.Instruments.Add(instrument); await context.SaveChangesAsync();
         var bars = CreateBars(201, 100).Select(bar => new DailyBar { InstrumentId = instrument.InstrumentId, TradingDate = bar.TradingDate, Open = bar.Open, High = bar.High, Low = bar.Low, Close = bar.Close, Volume = bar.Volume, Source = "YahooFinanceChartApiV8", FetchedAtUtc = analyzed, Revision = 1, Status = "Final" });
         context.DailyBars.AddRange(bars);
-        context.DailyBarHistoryCoverages.Add(new DailyBarHistoryCoverage { InstrumentId = instrument.InstrumentId, Source = "YahooFinanceChartApiV8", EarliestReturnedDate = new DateOnly(2025, 1, 1), LatestReturnedDate = new DateOnly(2025, 7, 20), FullHistoryConfirmed = true, ObservedAtUtc = analyzed, Revision = 1, Status = "Complete" });
         await context.SaveChangesAsync();
         var store = new EfTechnicalScanStore(context);
 
@@ -101,7 +100,33 @@ public class TechnicalAnalysisEngineTests
         var second = await store.BuildSeriesAsync(instrument.InstrumentId, new DateOnly(2025, 7, 20), analyzed, 201, CancellationToken.None);
 
         Assert.Equal(first.ManifestId, second.ManifestId);
+        Assert.Equal("Ok", first.DataStatus);
         Assert.Single(context.AnalysisInputManifests);
+    }
+
+    [Fact]
+    public async Task PointInTimeStore_ClearsTrackedManifestBarsAfterEachPersistedInstrument()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var analyzed = new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc);
+        var instrument = new Instrument { FirstObservedAtUtc = analyzed };
+        context.Instruments.Add(instrument);
+        await context.SaveChangesAsync();
+        context.DailyBars.AddRange(CreateBars(201, 100).Select(bar => new DailyBar
+        {
+            InstrumentId = instrument.InstrumentId, TradingDate = bar.TradingDate, Open = bar.Open, High = bar.High, Low = bar.Low, Close = bar.Close,
+            Volume = bar.Volume, Source = "YahooFinanceChartApiV8", FetchedAtUtc = analyzed, Revision = 1, Status = "Final",
+        }));
+        await context.SaveChangesAsync();
+        var store = new EfTechnicalScanStore(context);
+        var request = new TechnicalScanRequest(new DateOnly(2025, 7, 20), analyzed, null, "test-universe", new TechnicalStrategyParameters());
+        var scanRunId = await store.CreateScanRunAsync(request, 1, CancellationToken.None);
+
+        await store.BuildSeriesAsync(instrument.InstrumentId, request.EvaluationBarDate, analyzed, request.Parameters.RequiredHistoryCount, CancellationToken.None);
+        await store.SaveExclusionAsync(scanRunId, instrument.InstrumentId, "InsufficientHistory", 0, request.Parameters.RequiredHistoryCount, CancellationToken.None);
+
+        Assert.Empty(context.ChangeTracker.Entries());
     }
 
     [Fact]
@@ -114,6 +139,23 @@ public class TechnicalAnalysisEngineTests
         Assert.Equal("PartiallySucceeded", result.Status);
         Assert.Equal(new[] { "1000", "2000" }, store.ProcessedCodes);
         Assert.Equal(1, result.FailedCount);
+    }
+
+    [Fact]
+    public async Task ScanService_BoundedConcurrentModePreservesPartialFailureAndProgress()
+    {
+        var store = new RecordingStore();
+        var parameters = new TechnicalStrategyParameters();
+        var reports = new List<TechnicalScanProgress>();
+        var request = new TechnicalScanRequest(store.Series.Bars[^1].TradingDate, DateTime.UtcNow, null, "universe", parameters);
+
+        var result = await new AllInstrumentScanService(store, maxConcurrentInstrumentAnalysis: 2)
+            .RunAsync(request, new InlineProgress<TechnicalScanProgress>(reports.Add), CancellationToken.None);
+
+        Assert.Equal("PartiallySucceeded", result.Status);
+        Assert.Equal(1, result.SucceededCount);
+        Assert.Equal(1, result.FailedCount);
+        Assert.Contains(reports, report => report.Completed == 2 && report.Total == 2 && report.FailedCount == 1);
     }
 
     private static IReadOnlyList<AdjustedDailyBar> CreateBars(int count, long lastVolume)
@@ -154,5 +196,10 @@ public class TechnicalAnalysisEngineTests
         public Task SaveCandidatesAsync(int indicatorResultId, int instrumentId, IReadOnlyList<CandidateEvaluation> candidates, DateTime createdAtUtc, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task SaveExclusionAsync(int scanRunId, int instrumentId, string reason, int available, int required, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task CompleteScanRunAsync(int scanRunId, string status, int succeededCount, int failedCount, DateTime completedAtUtc, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

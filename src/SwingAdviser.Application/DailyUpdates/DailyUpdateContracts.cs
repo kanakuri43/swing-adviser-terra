@@ -21,6 +21,8 @@ public sealed record DailyUpdateRequest(DateOnly EvaluationBarDate, DateTime Req
 
 public sealed class DailyUpdateContext
 {
+    private Action<string, int?, int?>? _stageProgressReporter;
+
     public DailyUpdateContext(int dailyUpdateRunId, DailyUpdateRequest request, DateTime analyzedAtUtc)
     {
         DailyUpdateRunId = dailyUpdateRunId;
@@ -32,6 +34,13 @@ public sealed class DailyUpdateContext
     public DailyUpdateRequest Request { get; }
     /// <summary>Frozen after the external-refresh step, so the following PIT reads can see only data available by that time.</summary>
     public DateTime AnalyzedAtUtc { get; internal set; }
+
+    /// <summary>Reports work inside the currently executing stage without changing the durable step outcome.</summary>
+    public void ReportStageProgress(string detail, int? completedWorkItems = null, int? totalWorkItems = null)
+        => _stageProgressReporter?.Invoke(detail, completedWorkItems, totalWorkItems);
+
+    internal void SetStageProgressReporter(Action<string, int?, int?>? reporter)
+        => _stageProgressReporter = reporter;
 }
 
 /// <summary>Outcome for one deterministic orchestration step. Unit counts are surfaced without hiding partial errors.</summary>
@@ -48,7 +57,9 @@ public sealed record DailyUpdateStepProgress(
     int SucceededCount,
     int FailedCount,
     string Status,
-    string? Detail);
+    string? Detail,
+    int? CompletedWorkItems = null,
+    int? TotalWorkItems = null);
 
 public sealed record DailyUpdateRunResult(
     int DailyUpdateRunId,

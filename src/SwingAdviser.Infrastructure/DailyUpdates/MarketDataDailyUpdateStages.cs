@@ -6,22 +6,38 @@ using SwingAdviser.Infrastructure.Persistence;
 namespace SwingAdviser.Infrastructure.DailyUpdates;
 
 /// <summary>Runs independently auditable master, margin, price, action, and fundamental refreshes before analysis.</summary>
-public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingestion, SwingAdviserDbContext context) : IDailyUpdateStage
+public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingestion, SwingAdviserDbContext context, int historyLookbackYears, int requiredHistoryCount) : IDailyUpdateStage
 {
     public DailyUpdateStep Step => DailyUpdateStep.RefreshMarketData;
 
     public async Task<DailyUpdateStepResult> ExecuteAsync(DailyUpdateContext update, CancellationToken cancellationToken)
     {
+        update.ReportStageProgress("ステップ 1/11: JPXの上場銘柄一覧を取得しています。ネットワーク応答を待機中です。");
         await ingestion.RefreshInstrumentMasterAsync(update.DailyUpdateRunId, cancellationToken);
+        update.ReportStageProgress("ステップ 1/11: JPXの信用・貸借銘柄一覧を取得しています。ネットワーク応答を待機中です。");
         await ingestion.RefreshMarginEligibilityAsync(update.DailyUpdateRunId, cancellationToken);
         var universe = await LatestEligibleUniverseAsync(cancellationToken);
-        await ingestion.RefreshInstrumentsAsync(update.DailyUpdateRunId, universe, cancellationToken);
-        // A backwardation source is intentionally not fabricated. Its absence remains visible rather than becoming a zero-cost assumption.
+        var historyStart = TechnicalHistoryWindow.GetStart(update.Request.EvaluationBarDate, requiredHistoryCount, historyLookbackYears);
+        var refreshTargets = await ingestion.CreateRefreshTargetsAsync(
+            universe,
+            update.Request.EvaluationBarDate,
+            update.AnalyzedAtUtc,
+            DateTime.SpecifyKind(historyStart.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc),
+            cancellationToken);
+        var chartRequestCount = refreshTargets.Count(target => target.RefreshChart);
+        var cacheHitCount = refreshTargets.Count - chartRequestCount;
+        update.ReportStageProgress($"ステップ 1/11: {universe.Count:n0}銘柄を確認しています（キャッシュ利用 {cacheHitCount:n0}、不足分 {chartRequestCount:n0}件を過去{historyLookbackYears}年で取得）。", 0, universe.Count);
+        var instrumentProgress = new Progress<InstrumentRefreshProgress>(item => update.ReportStageProgress(
+            $"ステップ 1/11: 株価を{(item.UsedCachedChart ? "キャッシュから確認" : "取得") }中（{item.CompletedCount:n0}/{item.TotalCount:n0}銘柄、直近: {item.LastCompletedCode}）。中止できます。",
+            item.CompletedCount, item.TotalCount));
+        await ingestion.RefreshInstrumentsAsync(update.DailyUpdateRunId, refreshTargets, cancellationToken, instrumentProgress);
+        // A backwardation source is intentionally not fabricated. Its absence remains visible rather than becoming a zero-cost assumption,
+        // but does not turn the price/technical-analysis core into a false failure.
         context.ExternalFetchResults.Add(new SwingAdviser.Domain.Analysis.ExternalFetchResult
         {
             DailyUpdateRunId = update.DailyUpdateRunId,
             SourceKind = "Backwardation",
-            Status = "Failed",
+            Status = "Unavailable",
             ErrorKind = "NotImplemented",
             ErrorMessage = "No backwardation source is configured; margin costs remain reconciliation-required.",
             AttemptedAtUtc = DateTime.UtcNow,

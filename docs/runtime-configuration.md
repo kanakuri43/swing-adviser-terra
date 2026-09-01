@@ -1,0 +1,31 @@
+# Runtime configuration
+
+Phase 12 の「日次分析を更新」は、利用者が明示的に開始する分析処理です。注文、約定登録、自動売買は行いません。
+
+以下は起動前に環境変数として設定します。値に秘密情報を含める場合も、リポジトリへコミットしてはいけません。
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `SWING_ADVISER_JPX_LISTED_ISSUES_URL` | JPX上場銘柄一覧の取得先を上書きする絶対URL（CSV/TSV/XLS/XLSX） | [JPX公式 `data_j.xls`](https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls) |
+| `SWING_ADVISER_JPX_MARGIN_ISSUES_URL` | JPX信用・貸借銘柄一覧の取得先を上書きする絶対URL | [JPX公式一覧HTML](https://www.jpx.co.jp/listing/others/margin/index.html) |
+| `SWING_ADVISER_YAHOO_BASE_URL` | Yahoo Finance APIのベースURL | `https://query1.finance.yahoo.com/` |
+| `SWING_ADVISER_DATA_TIMEOUT_SECONDS` | 外部データ要求のタイムアウト秒数 | `60` |
+| `SWING_ADVISER_DATA_MAX_CONCURRENCY` | Yahoo銘柄データを同時取得する上限（1〜8）。SQLiteへの保存は順番に行う | `8` |
+| `SWING_ADVISER_SCAN_MAX_CONCURRENCY` | ステップ5の銘柄別指標計算を同時実行する上限（1〜8）。SQLiteの監査用保存は順番に行う | `4` |
+| `SWING_ADVISER_HISTORY_LOOKBACK_YEARS` | 日次スキャンの有限履歴窓（年）。必要指標のウォームアップ期間がより長い場合はそちらを優先 | `5` |
+| `SWING_ADVISER_CODEX_PATH` | Codex CLI実行ファイルを明示指定する | npmの標準配置 → PATH上の`codex.exe` → `codex` |
+| `SWING_ADVISER_CODEX_WORKING_DIRECTORY` | Codex CLIの作業ディレクトリ | 未設定 |
+| `SWING_ADVISER_CODEX_MODEL` | Codex CLIに渡すモデル名 | 未設定 |
+| `SWING_ADVISER_CODEX_ARGUMENTS` | Codex CLI追加引数。US区切り（U+001F） | 空 |
+| `SWING_ADVISER_CODEX_TIMEOUT_SECONDS` | AIチェックのタイムアウト秒数 | `300` |
+| `SWING_ADVISER_CODEX_MAX_CONCURRENCY` | AIチェック並列数（1〜2） | `2` |
+| `SWING_ADVISER_AI_AUTO_ENABLED` | 日次更新後の自動AIキュー投入を有効化するか | `true`（無効化するときだけ`false`を指定） |
+| `SWING_ADVISER_AI_AUTO_TOP_COUNT` | 有効時の各方向上位候補数 | `3` |
+
+AIの自動投入を有効にしても、AI結果は参考情報として非同期で保存・表示するだけです。約定や発注を生成しません。
+
+日次更新は、参考プロジェクトの「今すぐスキャン」と同様にキャッシュ優先です。評価日の確定済み日足がある銘柄は通信せず、足りない銘柄だけを分析窓（既定5年）で取得します。全銘柄のPER/PBR取得は候補抽出前の必須処理にはしません。JPX上場銘柄一覧のXLS取得とCodex CLIの検出順は、同じPCで利用している `stock-simulator-codex` の実装を流用しています。環境変数は、プロキシ・ミラー・別配置などを使う場合だけ設定します。
+
+Yahoo株価要求は、並列取得中でも開始を200ms間隔（毎秒最大5件）に制限する。これは参考プロジェクトと同じレート制御であり、レート制限による失敗・再試行の増加を避けるためである。
+
+日次更新の判定基準日は、取得直後の当日足を確定足として扱わないため、JSTの直近平日です。祝日などで確定足がない場合は、既存のpoint-in-time検証が候補を fail-closed で除外し、その理由を記録します。

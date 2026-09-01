@@ -7,20 +7,123 @@ public partial class MainWindow
     private readonly SwingAdviser.Application.Positions.IManualPositionOverviewReader _overviewReader;
     private readonly SwingAdviser.Application.Analysis.IAiCheckQueueController _aiQueue;
     private readonly SwingAdviser.Application.Analysis.IAiCheckOverviewReader _aiOverview;
+    private readonly SwingAdviser.Application.DailyUpdates.IDailyUpdateExecutionService _dailyUpdateRunner;
+    private readonly SwingAdviser.Application.DailyUpdates.IDailyUpdateOverviewReader _dailyUpdateOverview;
     private readonly ViewModels.MainWindowViewModel _viewModel;
+    private CancellationTokenSource? _dailyUpdateCancellation;
+    private readonly System.Windows.Threading.DispatcherTimer _aiQueueRefreshTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private int _aiQueueRefreshInFlight;
 
-    public MainWindow(SwingAdviser.Application.Positions.ManualTradeRegistrationService registrationService, SwingAdviser.Application.Positions.IInstrumentLookup instrumentLookup, SwingAdviser.Application.Positions.IManualPositionOverviewReader overviewReader, SwingAdviser.Application.Analysis.IAiCheckQueueController aiQueue, SwingAdviser.Application.Analysis.IAiCheckOverviewReader aiOverview)
+    public MainWindow(SwingAdviser.Application.Positions.ManualTradeRegistrationService registrationService, SwingAdviser.Application.Positions.IInstrumentLookup instrumentLookup, SwingAdviser.Application.Positions.IManualPositionOverviewReader overviewReader, SwingAdviser.Application.Analysis.IAiCheckQueueController aiQueue, SwingAdviser.Application.Analysis.IAiCheckOverviewReader aiOverview, SwingAdviser.Application.DailyUpdates.IDailyUpdateExecutionService dailyUpdateRunner, SwingAdviser.Application.DailyUpdates.IDailyUpdateOverviewReader dailyUpdateOverview)
     {
         _registrationService = registrationService;
         _instrumentLookup = instrumentLookup;
         _overviewReader = overviewReader;
         _aiQueue = aiQueue;
         _aiOverview = aiOverview;
+        _dailyUpdateRunner = dailyUpdateRunner;
+        _dailyUpdateOverview = dailyUpdateOverview;
         _viewModel = new ViewModels.MainWindowViewModel();
         InitializeComponent();
         DataContext = _viewModel;
-        Loaded += async (_, _) => { await _viewModel.ReloadManualRecordsAsync(_overviewReader); await _viewModel.ReloadAiChecksAsync(_aiOverview); };
+        Loaded += async (_, _) =>
+        {
+            await ReloadDisplayedDataAsync("保存済みの分析結果");
+            _viewModel.MarkPreviousDailyUpdateAsInterrupted();
+            _aiQueueRefreshTimer.Start();
+        };
+        Closed += (_, _) => _aiQueueRefreshTimer.Stop();
+        _aiQueueRefreshTimer.Tick += RefreshAiQueueProgress;
     }
+
+    private async void RunDailyUpdate(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (_dailyUpdateCancellation is not null) return;
+        _dailyUpdateCancellation = new CancellationTokenSource();
+        _viewModel.BeginDailyUpdate();
+        var startedAt = DateTimeOffset.Now;
+        var heartbeat = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        heartbeat.Tick += (_, _) => _viewModel.ReportDailyUpdateHeartbeat(DateTimeOffset.Now - startedAt);
+        heartbeat.Start();
+        try
+        {
+            var progress = new Progress<SwingAdviser.Application.DailyUpdates.DailyUpdateStepProgress>(_viewModel.ReportDailyUpdate);
+            // The data refresh and scan perform many database operations. Keep those continuations off
+            // the WPF dispatcher; Progress<T> still posts each stage update back to the UI thread.
+            var result = await Task.Run(
+                () => _dailyUpdateRunner.RunAsync(progress, _dailyUpdateCancellation.Token),
+                _dailyUpdateCancellation.Token);
+            _viewModel.EndDailyUpdate($"日次分析更新が{DisplayRunStatus(result.Status)}しました。候補・保有・AI状態を実データから更新しました。AIチェックはバックグラウンドで継続する場合があります。");
+        }
+        catch (OperationCanceledException)
+        {
+            _viewModel.EndDailyUpdate("日次分析更新を中止しました。完了済みステップまでの結果と失敗状況を表示します。");
+        }
+        catch (Exception exception)
+        {
+            _viewModel.EndDailyUpdate("日次分析更新を開始できませんでした。保存済みの結果を表示しています。");
+            System.Windows.MessageBox.Show(this, $"日次分析更新を開始できませんでした。\n{exception.Message}", "更新エラー", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        }
+        finally
+        {
+            heartbeat.Stop();
+            _dailyUpdateCancellation.Dispose();
+            _dailyUpdateCancellation = null;
+            await ReloadDisplayedDataAsync("日次分析更新後の結果");
+        }
+    }
+
+    private void CancelDailyUpdate(object sender, System.Windows.RoutedEventArgs e)
+    {
+        _dailyUpdateCancellation?.Cancel();
+    }
+
+    private async Task ReloadDisplayedDataAsync(string operation)
+    {
+        _viewModel.BeginDisplayReload(operation);
+        var succeeded = false;
+        try
+        {
+            await _viewModel.ReloadManualRecordsAsync(_overviewReader);
+            await _viewModel.ReloadAiChecksAsync(_aiOverview);
+            await _viewModel.ReloadDailyUpdateAsync(_dailyUpdateOverview);
+            succeeded = true;
+        }
+        catch (Exception)
+        {
+            // A malformed or interrupted persisted run must never terminate the WPF dispatcher on startup or after an update.
+            _viewModel.ReportDisplayReloadFailure();
+        }
+        finally
+        {
+            _viewModel.EndDisplayReload(succeeded);
+        }
+    }
+
+    private async void RefreshAiQueueProgress(object? sender, EventArgs e)
+    {
+        if (_viewModel.IsUpdateRunning || !_viewModel.AiQueueProgress.IsIndeterminate || Interlocked.Exchange(ref _aiQueueRefreshInFlight, 1) != 0) return;
+        try
+        {
+            await _viewModel.ReloadAiChecksAsync(_aiOverview);
+        }
+        catch (Exception)
+        {
+            // The next timer tick retries. A transient SQLite lock must not make the window unresponsive.
+        }
+        finally
+        {
+            Volatile.Write(ref _aiQueueRefreshInFlight, 0);
+        }
+    }
+
+    private static string DisplayRunStatus(string status) => status switch
+    {
+        "Succeeded" => "完了",
+        "PartiallySucceeded" => "一部完了",
+        "Failed" => "失敗",
+        _ => status,
+    };
 
     private async void QueueCandidateAiCheck(object sender, System.Windows.RoutedEventArgs e)
     {
