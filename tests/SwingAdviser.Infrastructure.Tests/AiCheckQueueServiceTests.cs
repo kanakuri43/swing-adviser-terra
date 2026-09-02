@@ -152,6 +152,41 @@ public class AiCheckQueueServiceTests
         }
     }
 
+    [Fact]
+    public async Task Overview_CountsOnlyAttemptsFromTheLatestDailyUpdate()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"swing-adviser-ai-test-{Guid.NewGuid():N}.db");
+        var connectionString = $"Data Source={databasePath}";
+        try
+        {
+            await using (var migrationContext = CreateContext(connectionString)) await migrationContext.Database.MigrateAsync();
+            await using (var seed = CreateContext(connectionString))
+            {
+                var timestamp = new DateTime(2026, 8, 31, 1, 0, 0, DateTimeKind.Utc);
+                var firstCandidateId = await SeedCandidateAsync(seed, timestamp, code: "1111");
+                var secondCandidateId = await SeedCandidateAsync(seed, timestamp.AddHours(1), code: "2222");
+                var previousRunId = await SeedDailyUpdateRunAsync(seed, timestamp);
+                var latestRunId = await SeedDailyUpdateRunAsync(seed, timestamp.AddHours(2));
+                await SeedAttemptAsync(seed, firstCandidateId, previousRunId, "TimedOut");
+                await SeedAttemptAsync(seed, secondCandidateId, latestRunId, "Succeeded");
+                await SeedAttemptAsync(seed, secondCandidateId, latestRunId, "Failed");
+                await SeedAttemptAsync(seed, secondCandidateId, null, "TimedOut");
+            }
+
+            var service = new AiCheckQueueService(() => CreateContext(connectionString), new FailedExecutor(), new AiCheckOptions("codex", null, null, TimeSpan.FromSeconds(5), [], MaximumConcurrency: 2));
+
+            var overview = await service.GetOverviewAsync();
+
+            Assert.Equal(1, overview.SucceededCount);
+            Assert.Equal(1, overview.FailedCount);
+            Assert.Equal(0, overview.TimedOutCount);
+        }
+        finally
+        {
+            try { if (File.Exists(databasePath)) File.Delete(databasePath); } catch (IOException) { }
+        }
+    }
+
     private static async Task<int> SeedCandidateAsync(SwingAdviserDbContext context, DateTime? timestamp = null, string scanStatus = "Succeeded", string code = "7203")
     {
         var observedAt = timestamp ?? new DateTime(2026, 8, 31, 1, 0, 0, DateTimeKind.Utc);
@@ -167,6 +202,37 @@ public class AiCheckQueueServiceTests
         var candidate = new CandidateResult { IndicatorResultId = indicator.IndicatorResultId, InstrumentId = instrument.InstrumentId, Direction = "Long", SignalPurpose = "Entry", Matched = true, Score = 80, ConfidenceLabel = "High", CandidateScoringEngineVersion = "candidate-scoring-engine-v1", ScoreComponentsJson = "{}", CreatedAtUtc = observedAt };
         context.CandidateResults.Add(candidate); await context.SaveChangesAsync();
         return candidate.CandidateResultId;
+    }
+
+    private static async Task<int> SeedDailyUpdateRunAsync(SwingAdviserDbContext context, DateTime startedAtUtc)
+    {
+        var run = new DailyUpdateRun { StartedAtUtc = startedAtUtc, CompletedAtUtc = startedAtUtc.AddMinutes(1), Status = "Succeeded" };
+        context.DailyUpdateRuns.Add(run); await context.SaveChangesAsync();
+        return run.DailyUpdateRunId;
+    }
+
+    private static async Task SeedAttemptAsync(SwingAdviserDbContext context, int candidateResultId, int? dailyUpdateRunId, string status)
+    {
+        var candidate = await context.CandidateResults.Include(item => item.IndicatorResult).SingleAsync(item => item.CandidateResultId == candidateResultId);
+        context.AiCheckAttempts.Add(new AiCheckAttempt
+        {
+            CandidateResultId = candidateResultId,
+            TriggeringDailyUpdateRunId = dailyUpdateRunId,
+            RequestedBy = dailyUpdateRunId is null ? "User" : "Auto",
+            RequestedAtUtc = candidate.CreatedAtUtc,
+            CompletedAtUtc = candidate.CreatedAtUtc,
+            Status = status,
+            EvaluationBarDate = candidate.IndicatorResult.EvaluationBarDate,
+            NormalizedInputSnapshotJson = "{}",
+            NormalizedInputSnapshotHash = $"input-{candidateResultId}-{status}-{dailyUpdateRunId}",
+            TechnicalInputManifestId = candidate.IndicatorResult.ManifestId,
+            StrategySnapshotHash = "strategy",
+            PromptTemplateVersion = "test",
+            PromptTemplateHash = "prompt",
+            CliExecutablePath = "test-codex",
+            TimeoutSeconds = 5,
+        });
+        await context.SaveChangesAsync();
     }
 
     private static async Task WaitUntilAsync(Func<Task<bool>> condition)

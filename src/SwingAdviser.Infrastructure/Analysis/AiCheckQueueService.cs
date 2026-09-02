@@ -121,6 +121,17 @@ public sealed class AiCheckQueueService : IAiCandidateQueueEnqueuer, IAiCheckQue
             .Include(item => item.CandidateResult).ThenInclude(candidate => candidate.IndicatorResult).ThenInclude(indicator => indicator.StrategyParameterSnapshot)
             .Include(item => item.CandidateResult).ThenInclude(candidate => candidate.IndicatorResult).ThenInclude(indicator => indicator.Manifest)
             .ToListAsync(cancellationToken);
+        // The progress card represents the AI work enqueued by the most recent daily update.
+        // Keep all attempts available for per-candidate status and audit history, but do not mix
+        // older runs or user-initiated checks into this update's progress total.
+        var latestDailyUpdateRunId = await context.DailyUpdateRuns.AsNoTracking()
+            .OrderByDescending(run => run.StartedAtUtc)
+            .ThenByDescending(run => run.DailyUpdateRunId)
+            .Select(run => (int?)run.DailyUpdateRunId)
+            .FirstOrDefaultAsync(cancellationToken);
+        var currentUpdateAttempts = latestDailyUpdateRunId is null
+            ? Array.Empty<AiCheckAttempt>()
+            : attempts.Where(item => item.TriggeringDailyUpdateRunId == latestDailyUpdateRunId.Value).ToArray();
         var results = await context.AiCheckResults.AsNoTracking().ToDictionaryAsync(item => item.AttemptId, cancellationToken);
         // A cancelled or interrupted scan retains its audit rows, but must never be mixed into
         // the current candidate list. Prefer the newest scan that reached a terminal usable
@@ -160,7 +171,7 @@ public sealed class AiCheckQueueService : IAiCandidateQueueEnqueuer, IAiCheckQue
             latestBars.TryGetValue(candidate.InstrumentId, out var latestBar);
             return new AiCandidateOverview(candidate.CandidateResultId, InstrumentCode(candidate), InstrumentName(candidate), candidate.Direction, candidate.IndicatorResult.EvaluationBarDate, candidate.Score, candidate.ConfidenceLabel, attempt is null ? "未実行" : attempt.IsStale ? "旧結果" : DisplayStatus(attempt.Status), attempt?.AttemptId, attempt?.IsStale ?? false, verdict, verdict is null ? null : Alignment(candidate.Direction, verdict), result?.Summary, latestBar?.TradingDate, latestBar?.Close);
         }).ToArray();
-        return new AiQueueOverview(attempts.Count(item => item.Status == Queued), attempts.Count(item => item.Status == Running), attempts.Count(item => item.Status == Succeeded), attempts.Count(item => item.Status == Failed), attempts.Count(item => item.Status == TimedOut), attempts.Count(item => item.Status == InsufficientInformation), attempts.Count(item => item.Status == Cancelled), candidates);
+        return new AiQueueOverview(currentUpdateAttempts.Count(item => item.Status == Queued), currentUpdateAttempts.Count(item => item.Status == Running), currentUpdateAttempts.Count(item => item.Status == Succeeded), currentUpdateAttempts.Count(item => item.Status == Failed), currentUpdateAttempts.Count(item => item.Status == TimedOut), currentUpdateAttempts.Count(item => item.Status == InsufficientInformation), currentUpdateAttempts.Count(item => item.Status == Cancelled), candidates);
     }
 
     /// <summary>Drains all currently queued work using no more than the configured two process executions.</summary>

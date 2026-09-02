@@ -61,12 +61,12 @@ public sealed class MainWindowViewModel : ObservableObject
         foreach (var candidate in overview.Candidates)
         {
             var priceDetail = candidate.LatestClose is null ? "最新確定終値は未取得です。" : $"最新確定終値 {candidate.LatestClose:n4}円（{candidate.LatestBarDate:yyyy-MM-dd}）。";
-            Candidates.Add(new CandidateRow(candidate.Code, candidate.Name, candidate.Direction, "Entry", candidate.EvaluationBarDate.ToString("yyyy-MM-dd"), "保存済み戦略", candidate.Score?.ToString() ?? "未算定", candidate.Confidence ?? "未算定", "保存済みのテクニカル候補。" + priceDetail + " AI結果は参考情報です。", candidate.AiStatus, candidate.CandidateResultId, candidate.LatestAttemptId, candidate.Verdict, candidate.VerdictAlignment, candidate.Summary, candidate.LatestClose is null ? "未取得" : $"{candidate.LatestClose:n4}円 ({candidate.LatestBarDate:yyyy-MM-dd})"));
+            Candidates.Add(new CandidateRow(candidate.Code, candidate.Name, candidate.Direction, "Entry", candidate.EvaluationBarDate.ToString("yyyy-MM-dd"), "保存済み戦略", candidate.Score?.ToString() ?? "未算定", candidate.Confidence ?? "未算定", "保存済みのテクニカル候補。" + priceDetail + " AI結果は参考情報です。", candidate.AiStatus, candidate.CandidateResultId, candidate.LatestAttemptId, candidate.Verdict, candidate.VerdictAlignment, candidate.Summary, candidate.LatestClose is null ? "未取得" : $"{Math.Round(candidate.LatestClose.Value, 0, MidpointRounding.AwayFromZero):n0}円"));
         }
         var total = overview.QueuedCount + overview.RunningCount + overview.SucceededCount + overview.FailedCount + overview.TimedOutCount + overview.InsufficientInformationCount + overview.CancelledCount;
         var active = overview.QueuedCount + overview.RunningCount;
         AiQueueProgress = new UpdateProgressRow(active > 0 ? "継続中" : total > 0 ? "完了" : "未実行", total == 0 ? 0 : 100d * (total - active) / total, active > 0,
-            $"対象 {total}件  ・  成功 {overview.SucceededCount}件  ・  実行中 {overview.RunningCount}件  ・  待機中 {overview.QueuedCount}件  ・  失敗 {overview.FailedCount + overview.TimedOutCount}件",
+            $"今回の対象 {total}件  ・  成功 {overview.SucceededCount}件  ・  実行中 {overview.RunningCount}件  ・  待機中 {overview.QueuedCount}件  ・  失敗 {overview.FailedCount + overview.TimedOutCount}件",
             active > 0
                 ? "AIチェックはバックグラウンドで実行中です。状態と候補一覧は5秒ごとに自動更新します。失敗・timeout・情報不足でも日次分析結果を無効にしません。"
                 : "AIチェックは完了または未実行です。失敗・timeout・情報不足でも日次分析結果を無効にしません。");

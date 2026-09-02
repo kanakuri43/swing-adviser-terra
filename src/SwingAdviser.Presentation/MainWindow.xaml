@@ -119,13 +119,20 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <DataGrid x:Name="CandidateGrid" AutoGenerateColumns="False" FrozenColumnCount="3" IsReadOnly="True" SelectionMode="Extended"
+                              PreviewMouseLeftButtonDown="ToggleCandidateDetail"
                               CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding Candidates}" RowDetailsVisibilityMode="VisibleWhenSelected">
                         <DataGrid.Columns>
                             <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
                             <DataGridTextColumn Width="170" Binding="{Binding Name}" Header="銘柄名" />
                             <DataGridTextColumn Width="95" Binding="{Binding Direction}" Header="Long/Short" />
                             <DataGridTextColumn Width="65" Binding="{Binding Score}" Header="スコア" />
-                            <DataGridTextColumn Width="145" Binding="{Binding LatestClose}" Header="最新確定終値" />
+                            <DataGridTextColumn Width="115" Binding="{Binding LatestClose}" Header="最終確定終値">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextAlignment" Value="Right" />
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
                             <DataGridTextColumn Width="300" Binding="{Binding PrimaryReason}" Header="主な判定理由" />
                             <DataGridTextColumn Width="115" Binding="{Binding AiStatus}" Header="AI状態" />
                             <DataGridTextColumn Width="90" Binding="{Binding AiVerdict}" Header="AI Verdict" />
@@ -192,7 +199,7 @@
                     <StackPanel Grid.Row="2" Margin="0,8,0,0">
                         <Button HorizontalAlignment="Left" Padding="10,4" Click="QueueSelectedCandidateAiChecks" Content="選択した候補をAIチェック" ToolTip="選択した候補をまとめて永続キューへ追加します。注文・約定は行いません。" />
                         <TextBlock Style="{StaticResource MutedText}" Text="{Binding CandidateCaption}" />
-                        <TextBlock Margin="0,3,0,0" Style="{StaticResource MutedText}" Text="行を選択すると、候補根拠とAI結果の詳細を表示します。AI Verdict は売買推奨ではありません。Long + Bullish / Short + Bearish は候補方向と整合、逆の組合せは候補方向と逆、Neutral は中立として表示します。情報不足はNeutralへ変換しません。" />
+                        <TextBlock Margin="0,3,0,0" Style="{StaticResource MutedText}" Text="行を選択すると、候補根拠とAI結果の詳細を表示します。表示中の行または詳細をクリックすると折りたたみます。AI Verdict は売買推奨ではありません。Long + Bullish / Short + Bearish は候補方向と整合、逆の組合せは候補方向と逆、Neutral は中立として表示します。情報不足はNeutralへ変換しません。" />
                         <TextBlock Margin="0,3,0,0" Style="{StaticResource MutedText}" Text="対象外は条件不一致と混同せず、履歴不足・データ不正・point-in-time 非保証などの理由を表示します。" />
                     </StackPanel>
                 </Grid>

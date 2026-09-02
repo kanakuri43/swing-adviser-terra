@@ -24,7 +24,11 @@ public partial class App : System.Windows.Application
                 await _aiServices.Queue.RecoverInterruptedAsync(CancellationToken.None);
                 await _aiServices.Queue.ProcessAvailableAsync(CancellationToken.None);
             });
-            new MainWindow(_services.Registration, _services.InstrumentLookup, _services.OverviewReader, _aiServices.Queue, _aiServices.Queue, _dailyUpdateServices.Runner, _dailyUpdateServices.OverviewReader).Show();
+            var mainWindow = new MainWindow(_services.Registration, _services.InstrumentLookup, _services.OverviewReader, _aiServices.Queue, _aiServices.Queue, _dailyUpdateServices.Runner, _dailyUpdateServices.OverviewReader);
+            var workingArea = SystemParameters.WorkArea;
+            if (workingArea.Width < mainWindow.Width || workingArea.Height < mainWindow.Height)
+                mainWindow.WindowState = WindowState.Maximized;
+            mainWindow.Show();
         }
         catch (Exception exception)
         {
