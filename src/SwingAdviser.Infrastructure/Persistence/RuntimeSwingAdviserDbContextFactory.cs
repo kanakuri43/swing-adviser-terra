@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace SwingAdviser.Infrastructure.Persistence;
@@ -12,13 +13,20 @@ public static class RuntimeSwingAdviserDbContextFactory
         return context;
     }
 
-    public static SwingAdviserDbContext CreateContext()
+    public static SwingAdviserDbContext CreateContext(string? baseDirectory = null)
     {
-        var databasePath = RuntimeDatabasePathResolver.ResolveWritableDatabasePath();
+        var databasePath = RuntimeDatabasePathResolver.ResolveWritableDatabasePath(baseDirectory);
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            ForeignKeys = true,
+        }.ConnectionString;
         var options = new DbContextOptionsBuilder<SwingAdviserDbContext>()
-            .UseSqlite($"Data Source={databasePath}")
+            .UseSqlite(connectionString)
             .UseSnakeCaseNamingConvention()
             .Options;
-        return new SwingAdviserDbContext(options);
+        var context = new SwingAdviserDbContext(options);
+        context.Database.ExecuteSqlRaw("PRAGMA journal_mode='WAL';");
+        return context;
     }
 }

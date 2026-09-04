@@ -18,6 +18,6 @@ public sealed class RuntimeAiCheckServices
         var arguments = (Environment.GetEnvironmentVariable("SWING_ADVISER_CODEX_ARGUMENTS") ?? string.Empty).Split('\u001f', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var automatic = !bool.TryParse(Environment.GetEnvironmentVariable("SWING_ADVISER_AI_AUTO_ENABLED"), out var configuredAutomatic) || configuredAutomatic;
         var options = new AiCheckOptions(CodexCliPathResolver.Resolve(), Environment.GetEnvironmentVariable("SWING_ADVISER_CODEX_WORKING_DIRECTORY"), Environment.GetEnvironmentVariable("SWING_ADVISER_CODEX_MODEL"), TimeSpan.FromSeconds(timeoutSeconds), arguments, parallelism, automatic, topCount);
-        return new RuntimeAiCheckServices(new AiCheckQueueService(RuntimeSwingAdviserDbContextFactory.CreateContext, new CodexCliExecutor(), options));
+        return new RuntimeAiCheckServices(new AiCheckQueueService(() => RuntimeSwingAdviserDbContextFactory.CreateContext(), new CodexCliExecutor(), options));
     }
 }
