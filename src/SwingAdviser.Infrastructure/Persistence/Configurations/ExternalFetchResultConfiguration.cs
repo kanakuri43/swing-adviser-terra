@@ -17,6 +17,10 @@ internal sealed class ExternalFetchResultConfiguration : IEntityTypeConfiguratio
             .WithMany(entity => entity.ExternalFetchResults)
             .HasForeignKey(entity => entity.DailyUpdateRunId)
             .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(entity => entity.DailyUpdateFetchCheckpoint)
+            .WithMany(entity => entity.ExternalFetchResults)
+            .HasForeignKey(entity => entity.DailyUpdateFetchCheckpointId)
+            .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(entity => entity.Instrument)
             .WithMany()
             .HasForeignKey(entity => entity.InstrumentId)

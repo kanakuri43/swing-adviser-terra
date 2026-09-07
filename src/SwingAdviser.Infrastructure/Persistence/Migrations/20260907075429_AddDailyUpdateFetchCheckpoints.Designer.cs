@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SwingAdviser.Infrastructure.Persistence;
 
@@ -10,9 +11,11 @@ using SwingAdviser.Infrastructure.Persistence;
 namespace SwingAdviser.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(SwingAdviserDbContext))]
-    partial class SwingAdviserDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907075429_AddDailyUpdateFetchCheckpoints")]
+    partial class AddDailyUpdateFetchCheckpoints
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.15");

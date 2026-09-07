@@ -120,6 +120,7 @@ API key 等の秘密情報をコミットしない。
 dotnet restore
 dotnet build
 dotnet test
+dotnet build -c Release --no-restore
 ```
 
 `dotnet format` は既存運用で導入済みの場合のみ使う。

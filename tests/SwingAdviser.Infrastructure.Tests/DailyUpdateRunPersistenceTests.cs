@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using SwingAdviser.Infrastructure.DailyUpdates;
 using SwingAdviser.Infrastructure.Persistence;
+using SwingAdviser.Domain.Analysis;
 
 namespace SwingAdviser.Infrastructure.Tests;
 
@@ -78,6 +79,37 @@ public class DailyUpdateRunPersistenceTests
         Assert.Equal(0, overview.SucceededCount);
         Assert.Equal(0, overview.FailedCount);
         Assert.Equal("保存済みの日次更新結果です。", overview.Detail);
+    }
+
+    [Fact]
+    public async Task RunStore_ClosesAbandonedRunAndCheckpointBeforeStartingANewRun()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        using var context = CreateContext(connection);
+        await context.Database.MigrateAsync();
+        var abandonedAt = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var abandoned = new DailyUpdateRun { StartedAtUtc = abandonedAt, Status = "Running" };
+        context.DailyUpdateRuns.Add(abandoned);
+        await context.SaveChangesAsync();
+        context.DailyUpdateFetchCheckpoints.Add(new DailyUpdateFetchCheckpoint
+        {
+            DailyUpdateRunId = abandoned.DailyUpdateRunId, EvaluationBarDate = new DateOnly(2026, 8, 31), SourceKind = "YahooFinanceChartApiV8",
+            TargetKey = "1", Status = "Running", StartedAtUtc = abandonedAt, ValidUntilUtc = abandonedAt.AddHours(6),
+        });
+        await context.SaveChangesAsync();
+
+        var resumedAt = abandonedAt.AddHours(1);
+        await new EfDailyUpdateRunStore(context).StartAsync(resumedAt, CancellationToken.None);
+        context.ChangeTracker.Clear();
+
+        var restored = await context.DailyUpdateRuns.OrderBy(run => run.DailyUpdateRunId).FirstAsync();
+        var checkpoint = await context.DailyUpdateFetchCheckpoints.SingleAsync();
+        Assert.Equal("Failed", restored.Status);
+        Assert.Equal(resumedAt, restored.CompletedAtUtc);
+        Assert.Contains("Interrupted", restored.StepSummaryJson!);
+        Assert.Equal("Interrupted", checkpoint.Status);
+        Assert.Equal(resumedAt, checkpoint.CompletedAtUtc);
     }
 
     private static SwingAdviserDbContext CreateContext(SqliteConnection connection) => new(new DbContextOptionsBuilder<SwingAdviserDbContext>().UseSqlite(connection).UseSnakeCaseNamingConvention().Options);

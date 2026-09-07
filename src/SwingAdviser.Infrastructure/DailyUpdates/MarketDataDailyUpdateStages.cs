@@ -6,31 +6,79 @@ using SwingAdviser.Infrastructure.Persistence;
 namespace SwingAdviser.Infrastructure.DailyUpdates;
 
 /// <summary>Runs independently auditable master, margin, price, action, and fundamental refreshes before analysis.</summary>
-public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingestion, SwingAdviserDbContext context, int historyLookbackYears, int requiredHistoryCount) : IDailyUpdateStage
+public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingestion, SwingAdviserDbContext context, int historyLookbackYears, int requiredHistoryCount,
+    TimeSpan checkpointValidity) : IDailyUpdateStage
 {
     public DailyUpdateStep Step => DailyUpdateStep.RefreshMarketData;
 
     public async Task<DailyUpdateStepResult> ExecuteAsync(DailyUpdateContext update, CancellationToken cancellationToken)
     {
-        update.ReportStageProgress("ステップ 1/11: JPXの上場銘柄一覧を取得しています。ネットワーク応答を待機中です。");
-        await ingestion.RefreshInstrumentMasterAsync(update.DailyUpdateRunId, cancellationToken);
-        update.ReportStageProgress("ステップ 1/11: JPXの信用・貸借銘柄一覧を取得しています。ネットワーク応答を待機中です。");
-        await ingestion.RefreshMarginEligibilityAsync(update.DailyUpdateRunId, cancellationToken);
-        var universe = await LatestEligibleUniverseAsync(cancellationToken);
+        var repository = new MarketDataRepository(context);
         var historyStart = TechnicalHistoryWindow.GetStart(update.Request.EvaluationBarDate, requiredHistoryCount, historyLookbackYears);
+        var historyStartUtc = DateTime.SpecifyKind(historyStart.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+        update.ReportStageProgress("ステップ 1/11: JPXの上場銘柄一覧を取得しています。ネットワーク応答を待機中です。");
+        await RefreshGlobalSourceAsync(repository, update, "JPX-ListedIssues", () => ingestion.RefreshInstrumentMasterAsync(update.DailyUpdateRunId, cancellationToken), historyStart, cancellationToken);
+        update.ReportStageProgress("ステップ 1/11: JPXの信用・貸借銘柄一覧を取得しています。ネットワーク応答を待機中です。");
+        await RefreshGlobalSourceAsync(repository, update, "JPX-MarginIssues", () => ingestion.RefreshMarginEligibilityAsync(update.DailyUpdateRunId, cancellationToken), historyStart, cancellationToken);
+        var universe = await LatestEligibleUniverseAsync(cancellationToken);
         var refreshTargets = await ingestion.CreateRefreshTargetsAsync(
             universe,
             update.Request.EvaluationBarDate,
             update.AnalyzedAtUtc,
-            DateTime.SpecifyKind(historyStart.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc),
+            historyStartUtc,
             cancellationToken);
-        var chartRequestCount = refreshTargets.Count(target => target.RefreshChart);
-        var cacheHitCount = refreshTargets.Count - chartRequestCount;
+        var plannedTargets = new List<(InstrumentRefreshTarget Target, int? CheckpointId)>();
+        foreach (var target in refreshTargets)
+        {
+            var fingerprint = await repository.GetSourceFingerprintAsync("YahooFinanceChartApiV8", target.InstrumentId, update.Request.EvaluationBarDate, historyStart, cancellationToken);
+            var decision = await repository.GetFetchCheckpointDecisionAsync(update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
+                target.InstrumentId.ToString(), fingerprint, DateTime.UtcNow, cancellationToken);
+            if (!target.RefreshChart && decision.CanReuse)
+            {
+                var reused = await repository.RecordReusedCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
+                    target.InstrumentId.ToString(), decision.CheckpointId!.Value, fingerprint, target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value),
+                    update.Request.EvaluationBarDate, DateTime.UtcNow, checkpointValidity, cancellationToken);
+                await repository.RecordFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, "Reused", null,
+                    "A valid same-evaluation-date checkpoint was reused.", 0, DateTime.UtcNow, cancellationToken);
+                await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, reused.DailyUpdateFetchCheckpointId, cancellationToken);
+                plannedTargets.Add((target, reused.DailyUpdateFetchCheckpointId));
+                continue;
+            }
+            if (!target.RefreshChart && decision.Disposition == FetchCheckpointDisposition.Missing)
+            {
+                // Existing verified cache from before this feature is safe to adopt, but is explicitly audited.
+                var adopted = await repository.StartFetchCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
+                    target.InstrumentId.ToString(), target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value), DateTime.UtcNow, checkpointValidity, "CacheValidated", cancellationToken);
+                await repository.CompleteFetchCheckpointAsync(adopted.DailyUpdateFetchCheckpointId, "Succeeded", fingerprint, update.Request.EvaluationBarDate, DateTime.UtcNow, cancellationToken);
+                await repository.RecordFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, "Reused", null,
+                    "A final cached chart and history window were validated for this evaluation date.", 0, DateTime.UtcNow, cancellationToken);
+                await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, adopted.DailyUpdateFetchCheckpointId, cancellationToken);
+                plannedTargets.Add((target, adopted.DailyUpdateFetchCheckpointId));
+                continue;
+            }
+            var checkpoint = await repository.StartFetchCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
+                target.InstrumentId.ToString(), target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value), DateTime.UtcNow, checkpointValidity,
+                decision.Disposition == FetchCheckpointDisposition.Missing ? null : decision.Disposition.ToString(), cancellationToken);
+            plannedTargets.Add((target with { RefreshChart = true }, checkpoint.DailyUpdateFetchCheckpointId));
+        }
+        var chartRequestCount = plannedTargets.Count(item => item.Target.RefreshChart);
+        var cacheHitCount = plannedTargets.Count - chartRequestCount;
         update.ReportStageProgress($"ステップ 1/11: {universe.Count:n0}銘柄を確認しています（キャッシュ利用 {cacheHitCount:n0}、不足分 {chartRequestCount:n0}件を過去{historyLookbackYears}年で取得）。", 0, universe.Count);
         var instrumentProgress = new Progress<InstrumentRefreshProgress>(item => update.ReportStageProgress(
             $"ステップ 1/11: 株価を{(item.UsedCachedChart ? "キャッシュから確認" : "取得") }中（{item.CompletedCount:n0}/{item.TotalCount:n0}銘柄、直近: {item.LastCompletedCode}）。中止できます。",
             item.CompletedCount, item.TotalCount));
-        await ingestion.RefreshInstrumentsAsync(update.DailyUpdateRunId, refreshTargets, cancellationToken, instrumentProgress);
+        await ingestion.RefreshInstrumentsAsync(update.DailyUpdateRunId, plannedTargets.Select(item => item.Target), cancellationToken, instrumentProgress);
+        foreach (var item in plannedTargets.Where(item => item.Target.RefreshChart))
+        {
+            var fetch = await context.ExternalFetchResults.Where(result => result.DailyUpdateRunId == update.DailyUpdateRunId && result.SourceKind == "YahooFinanceChartApiV8" && result.InstrumentId == item.Target.InstrumentId)
+                .OrderByDescending(result => result.FetchResultId).FirstOrDefaultAsync(cancellationToken);
+            var fingerprint = fetch?.Status == "Succeeded"
+                ? await repository.GetSourceFingerprintAsync("YahooFinanceChartApiV8", item.Target.InstrumentId, update.Request.EvaluationBarDate, historyStart, cancellationToken)
+                : null;
+            await repository.CompleteFetchCheckpointAsync(item.CheckpointId!.Value, fetch?.Status == "Succeeded" ? "Succeeded" : "Failed", fingerprint,
+                fetch?.Status == "Succeeded" ? update.Request.EvaluationBarDate : null, DateTime.UtcNow, cancellationToken);
+            await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", item.Target.InstrumentId, item.CheckpointId!.Value, cancellationToken);
+        }
         // A backwardation source is intentionally not fabricated. Its absence remains visible rather than becoming a zero-cost assumption,
         // but does not turn the price/technical-analysis core into a false failure.
         context.ExternalFetchResults.Add(new SwingAdviser.Domain.Analysis.ExternalFetchResult
@@ -44,7 +92,33 @@ public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingest
         });
         await context.SaveChangesAsync(cancellationToken);
         var fetches = await context.ExternalFetchResults.Where(fetch => fetch.DailyUpdateRunId == update.DailyUpdateRunId).ToListAsync(cancellationToken);
-        return new DailyUpdateStepResult(fetches.Count(fetch => fetch.Status == "Succeeded"), fetches.Count(fetch => fetch.Status == "Failed"), $"Refreshed {universe.Count} instruments; every source attempt is retained in external_fetch_results.");
+        return new DailyUpdateStepResult(fetches.Count(fetch => fetch.Status is "Succeeded" or "Reused"), fetches.Count(fetch => fetch.Status == "Failed"), $"Refreshed {universe.Count} instruments; checkpoints, coverage, and every source attempt are retained.");
+    }
+
+    private async Task RefreshGlobalSourceAsync(MarketDataRepository repository, DailyUpdateContext update, string sourceKind, Func<Task<int>> refresh,
+        DateOnly historyStart, CancellationToken cancellationToken)
+    {
+        const string targetKey = "global";
+        var fingerprint = await repository.GetSourceFingerprintAsync(sourceKind, null, update.Request.EvaluationBarDate, historyStart, cancellationToken);
+        var decision = await repository.GetFetchCheckpointDecisionAsync(update.Request.EvaluationBarDate, sourceKind, null, targetKey, fingerprint, DateTime.UtcNow, cancellationToken);
+        if (decision.CanReuse)
+        {
+            var reused = await repository.RecordReusedCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, sourceKind, null, targetKey,
+                decision.CheckpointId!.Value, fingerprint, null, null, DateTime.UtcNow, checkpointValidity, cancellationToken);
+            await repository.RecordFetchResultAsync(update.DailyUpdateRunId, sourceKind, null, "Reused", null, "A valid same-evaluation-date checkpoint was reused.", 0, DateTime.UtcNow, cancellationToken);
+            await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, sourceKind, null, reused.DailyUpdateFetchCheckpointId, cancellationToken);
+            return;
+        }
+        var checkpoint = await repository.StartFetchCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, sourceKind, null, targetKey, null,
+            DateTime.UtcNow, checkpointValidity, decision.Disposition == FetchCheckpointDisposition.Missing ? null : decision.Disposition.ToString(), cancellationToken);
+        await refresh();
+        var fetch = await context.ExternalFetchResults.Where(result => result.DailyUpdateRunId == update.DailyUpdateRunId && result.SourceKind == sourceKind && result.InstrumentId == null)
+            .OrderByDescending(result => result.FetchResultId).FirstOrDefaultAsync(cancellationToken);
+        var completedFingerprint = fetch?.Status == "Succeeded"
+            ? await repository.GetSourceFingerprintAsync(sourceKind, null, update.Request.EvaluationBarDate, historyStart, cancellationToken)
+            : null;
+        await repository.CompleteFetchCheckpointAsync(checkpoint.DailyUpdateFetchCheckpointId, fetch?.Status == "Succeeded" ? "Succeeded" : "Failed", completedFingerprint, null, DateTime.UtcNow, cancellationToken);
+        await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, sourceKind, null, checkpoint.DailyUpdateFetchCheckpointId, cancellationToken);
     }
 
     private async Task<IReadOnlyList<(int InstrumentId, string Code)>> LatestEligibleUniverseAsync(CancellationToken cancellationToken)

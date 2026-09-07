@@ -7,6 +7,7 @@ public sealed class ExternalFetchResult
 {
     public int FetchResultId { get; set; }
     public int? DailyUpdateRunId { get; set; }
+    public int? DailyUpdateFetchCheckpointId { get; set; }
     public string SourceKind { get; set; } = string.Empty;
     public int? InstrumentId { get; set; }
     public string Status { get; set; } = string.Empty;
@@ -16,5 +17,6 @@ public sealed class ExternalFetchResult
     public DateTime AttemptedAtUtc { get; set; }
 
     public DailyUpdateRun? DailyUpdateRun { get; set; }
+    public DailyUpdateFetchCheckpoint? DailyUpdateFetchCheckpoint { get; set; }
     public Instrument? Instrument { get; set; }
 }

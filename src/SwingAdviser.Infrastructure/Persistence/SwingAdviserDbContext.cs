@@ -43,6 +43,8 @@ public sealed class SwingAdviserDbContext : DbContext
 
     public DbSet<ExternalFetchResult> ExternalFetchResults => Set<ExternalFetchResult>();
 
+    public DbSet<DailyUpdateFetchCheckpoint> DailyUpdateFetchCheckpoints => Set<DailyUpdateFetchCheckpoint>();
+
     public DbSet<ScanRun> ScanRuns => Set<ScanRun>();
 
     public DbSet<IndicatorResult> IndicatorResults => Set<IndicatorResult>();

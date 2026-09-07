@@ -38,6 +38,7 @@ public sealed class RuntimeDailyUpdateServices : IDisposable
         var maxConcurrentInstrumentFetches = BoundedEnvironmentValue("SWING_ADVISER_DATA_MAX_CONCURRENCY", 8, 1, 8);
         var maxConcurrentInstrumentAnalysis = BoundedEnvironmentValue("SWING_ADVISER_SCAN_MAX_CONCURRENCY", 4, 1, 8);
         var historyLookbackYears = BoundedEnvironmentValue("SWING_ADVISER_HISTORY_LOOKBACK_YEARS", 5, 1, 10);
+        var checkpointValidityMinutes = BoundedEnvironmentValue("SWING_ADVISER_FETCH_CHECKPOINT_VALIDITY_MINUTES", 360, 1, 1440);
         var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(Math.Max(1, timeoutSeconds)) };
         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("SwingAdviser/1.0 (decision-support; no-ordering)");
         var repository = new MarketDataRepository(context);
@@ -50,7 +51,7 @@ public sealed class RuntimeDailyUpdateServices : IDisposable
         var scan = new AllInstrumentScanService(new EfTechnicalScanStore(context, historyLookbackYears), maxConcurrentInstrumentAnalysis: maxConcurrentInstrumentAnalysis);
         var stages = new IDailyUpdateStage[]
         {
-            new MarketDataDailyUpdateStage(ingestion, context, historyLookbackYears, strategyParameters.RequiredHistoryCount),
+            new MarketDataDailyUpdateStage(ingestion, context, historyLookbackYears, strategyParameters.RequiredHistoryCount, TimeSpan.FromMinutes(checkpointValidityMinutes)),
             new DataAvailabilityVerificationDailyUpdateStage(context),
             new CorporateActionAdjustmentDailyUpdateStage(new CorporateActionPositionAdjustmentService(new EfCorporateActionPositionAdjustmentStore(context))),
             new PointInTimePreparationDailyUpdateStage(),

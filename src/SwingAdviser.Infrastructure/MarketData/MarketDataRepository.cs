@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
+using System.Text;
 using SwingAdviser.Domain.Analysis;
 using SwingAdviser.Domain.MarketData;
 using SwingAdviser.Infrastructure.Persistence;
@@ -50,14 +52,15 @@ public sealed class MarketDataRepository
                 && entity.TradingDate <= evaluationBarDate
                 && entity.FetchedAtUtc <= analyzedAtUtc)
             .GroupBy(entity => entity.InstrumentId)
-            .Select(group => new { InstrumentId = group.Key, Earliest = group.Min(item => item.TradingDate) })
+            .Select(group => new { InstrumentId = group.Key, Earliest = group.Min(item => item.TradingDate), Latest = group.Max(item => item.TradingDate) })
             .ToListAsync(cancellationToken);
-        var earliestCachedDateByInstrument = cachedRanges.ToDictionary(item => item.InstrumentId, item => item.Earliest);
+        var cachedRangeByInstrument = cachedRanges.ToDictionary(item => item.InstrumentId);
 
         return requested.Select(item =>
         {
             latestEvaluationBarByInstrument.TryGetValue(item.InstrumentId, out var evaluationBar);
-            earliestCachedDateByInstrument.TryGetValue(item.InstrumentId, out var earliestCachedDate);
+            cachedRangeByInstrument.TryGetValue(item.InstrumentId, out var cachedRange);
+            var earliestCachedDate = cachedRange?.Earliest ?? default;
             // The provider's requested start can fall on a weekend or exchange holiday. A two-week
             // allowance covers the calendar gap while still rejecting a materially truncated cache.
             var hasWindowCoverage = earliestCachedDate != default && earliestCachedDate <= chartPeriodStartDate.AddDays(14);
@@ -66,9 +69,110 @@ public sealed class MarketDataRepository
                 item.InstrumentId,
                 item.Code,
                 !hasFreshChart,
-                chartPeriodStartUtc,
+                hasFreshChart ? chartPeriodStartUtc : IncrementalStart(chartPeriodStartUtc, cachedRange?.Latest),
                 RefreshFundamentals: false);
         }).ToArray();
+    }
+
+    public async Task<FetchCheckpointDecision> GetFetchCheckpointDecisionAsync(DateOnly evaluationBarDate, string sourceKind, int? instrumentId,
+        string targetKey, string currentFingerprint, DateTime nowUtc, CancellationToken cancellationToken)
+    {
+        var checkpoint = await _context.DailyUpdateFetchCheckpoints
+            .Where(item => item.EvaluationBarDate == evaluationBarDate && item.SourceKind == sourceKind && item.TargetKey == targetKey)
+            .OrderByDescending(item => item.DailyUpdateFetchCheckpointId).FirstOrDefaultAsync(cancellationToken);
+        if (checkpoint is null) return new(FetchCheckpointDisposition.Missing, null);
+        if (checkpoint.Status != "Succeeded") return new(FetchCheckpointDisposition.RetryInterruptedOrFailed, checkpoint.DailyUpdateFetchCheckpointId);
+        if (checkpoint.ValidUntilUtc < nowUtc) return new(FetchCheckpointDisposition.RetryExpired, checkpoint.DailyUpdateFetchCheckpointId);
+        if (!string.Equals(checkpoint.DataRevisionFingerprint, currentFingerprint, StringComparison.Ordinal)) return new(FetchCheckpointDisposition.RetryDataChanged, checkpoint.DailyUpdateFetchCheckpointId);
+        return new(FetchCheckpointDisposition.Reusable, checkpoint.DailyUpdateFetchCheckpointId);
+    }
+
+    public async Task<DailyUpdateFetchCheckpoint> StartFetchCheckpointAsync(int runId, DateOnly evaluationBarDate, string sourceKind, int? instrumentId,
+        string targetKey, DateOnly? requestedRangeStartDate, DateTime startedAtUtc, TimeSpan validity, string? invalidationReason, CancellationToken cancellationToken)
+    {
+        var checkpoint = new DailyUpdateFetchCheckpoint
+        {
+            DailyUpdateRunId = runId, EvaluationBarDate = evaluationBarDate, SourceKind = sourceKind, InstrumentId = instrumentId, TargetKey = targetKey,
+            RequestedRangeStartDate = requestedRangeStartDate, Status = "Running", InvalidationReason = invalidationReason,
+            StartedAtUtc = startedAtUtc, ValidUntilUtc = startedAtUtc.Add(validity),
+        };
+        _context.DailyUpdateFetchCheckpoints.Add(checkpoint);
+        await _context.SaveChangesAsync(cancellationToken);
+        return checkpoint;
+    }
+
+    public async Task CompleteFetchCheckpointAsync(int checkpointId, string status, string? fingerprint, DateOnly? coveredThroughDate,
+        DateTime completedAtUtc, CancellationToken cancellationToken)
+    {
+        var checkpoint = await _context.DailyUpdateFetchCheckpoints.SingleAsync(item => item.DailyUpdateFetchCheckpointId == checkpointId, cancellationToken);
+        checkpoint.Status = status;
+        checkpoint.DataRevisionFingerprint = fingerprint;
+        checkpoint.CoveredThroughDate = coveredThroughDate;
+        checkpoint.CompletedAtUtc = completedAtUtc;
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<DailyUpdateFetchCheckpoint> RecordReusedCheckpointAsync(int runId, DateOnly evaluationBarDate, string sourceKind, int? instrumentId,
+        string targetKey, int reusedFromCheckpointId, string fingerprint, DateOnly? requestedRangeStartDate, DateOnly? coveredThroughDate,
+        DateTime nowUtc, TimeSpan validity, CancellationToken cancellationToken)
+    {
+        var checkpoint = new DailyUpdateFetchCheckpoint
+        {
+            DailyUpdateRunId = runId, EvaluationBarDate = evaluationBarDate, SourceKind = sourceKind, InstrumentId = instrumentId, TargetKey = targetKey,
+            RequestedRangeStartDate = requestedRangeStartDate, CoveredThroughDate = coveredThroughDate, DataRevisionFingerprint = fingerprint,
+            Status = "Succeeded", StartedAtUtc = nowUtc, CompletedAtUtc = nowUtc, ValidUntilUtc = nowUtc.Add(validity), ReusedFromCheckpointId = reusedFromCheckpointId,
+        };
+        _context.DailyUpdateFetchCheckpoints.Add(checkpoint);
+        await _context.SaveChangesAsync(cancellationToken);
+        return checkpoint;
+    }
+
+    public async Task<string> GetSourceFingerprintAsync(string sourceKind, int? instrumentId, DateOnly evaluationBarDate, DateOnly historyStartDate,
+        CancellationToken cancellationToken)
+    {
+        var values = new List<string> { sourceKind, instrumentId?.ToString() ?? "global", evaluationBarDate.ToString("yyyy-MM-dd") };
+        if (sourceKind == "JPX-ListedIssues")
+        {
+            values.AddRange((await _context.InstrumentMasterRevisions.Where(item => item.EffectiveAtDate <= evaluationBarDate && item.Status == "Active").ToListAsync(cancellationToken))
+                .GroupBy(item => item.InstrumentId).Select(group => group.OrderByDescending(item => item.Revision).First())
+                .OrderBy(item => item.InstrumentId).Select(item => $"{item.InstrumentId}:{item.Revision}:{item.SourceFileHash}"));
+        }
+        else if (sourceKind == "JPX-MarginIssues")
+        {
+            values.AddRange((await _context.MarginRegulationRevisions.Where(item => item.EffectiveAtDate <= evaluationBarDate && item.Status == "Active").ToListAsync(cancellationToken))
+                .GroupBy(item => item.InstrumentId).Select(group => group.OrderByDescending(item => item.Revision).First())
+                .OrderBy(item => item.InstrumentId).Select(item => $"{item.InstrumentId}:{item.Revision}"));
+        }
+        else if (instrumentId.HasValue)
+        {
+            var bars = (await _context.DailyBars.Where(item => item.InstrumentId == instrumentId && item.TradingDate >= historyStartDate && item.TradingDate <= evaluationBarDate).ToListAsync(cancellationToken))
+                .GroupBy(item => item.TradingDate).Select(group => group.OrderByDescending(item => item.Revision).First()).OrderBy(item => item.TradingDate);
+            values.AddRange(bars.Select(item => $"b:{item.DailyBarId}:{item.TradingDate:yyyy-MM-dd}:{item.Revision}:{item.Status}"));
+            var actions = (await _context.CorporateActions.Where(item => item.InstrumentId == instrumentId && item.EffectiveDate <= evaluationBarDate).ToListAsync(cancellationToken))
+                .GroupBy(item => item.SourceEventId).Select(group => group.OrderByDescending(item => item.Revision).First()).OrderBy(item => item.SourceEventId);
+            values.AddRange(actions.Select(item => $"a:{item.CorporateActionId}:{item.Revision}:{item.Status}"));
+            var coverage = await _context.DailyBarHistoryCoverages.Where(item => item.InstrumentId == instrumentId && item.Source == "YahooFinanceChartApiV8")
+                .OrderByDescending(item => item.Revision).FirstOrDefaultAsync(cancellationToken);
+            values.Add(coverage is null ? "coverage:none" : $"coverage:{coverage.DailyBarHistoryCoverageId}:{coverage.Revision}:{coverage.Status}:{coverage.LatestReturnedDate:yyyy-MM-dd}");
+        }
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("|", values)))).ToLowerInvariant();
+    }
+
+    public async Task AttachCheckpointToLatestFetchResultAsync(int runId, string sourceKind, int? instrumentId, int checkpointId, CancellationToken cancellationToken)
+    {
+        var result = await _context.ExternalFetchResults.Where(item => item.DailyUpdateRunId == runId && item.SourceKind == sourceKind && item.InstrumentId == instrumentId)
+            .OrderByDescending(item => item.FetchResultId).FirstOrDefaultAsync(cancellationToken);
+        if (result is null) return;
+        result.DailyUpdateFetchCheckpointId = checkpointId;
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static DateTime IncrementalStart(DateTime fullWindowStartUtc, DateOnly? latestCachedDate)
+    {
+        if (!latestCachedDate.HasValue) return fullWindowStartUtc;
+        var overlapStart = latestCachedDate.Value.AddDays(-14);
+        var fullStart = DateOnly.FromDateTime(fullWindowStartUtc);
+        return DateTime.SpecifyKind((overlapStart > fullStart ? overlapStart : fullStart).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
     }
 
     public async Task<int> ImportInstrumentMasterAsync(

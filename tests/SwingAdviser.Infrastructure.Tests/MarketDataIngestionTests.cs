@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using SwingAdviser.Domain.Analysis;
 using SwingAdviser.Domain.MarketData;
 using SwingAdviser.Infrastructure.MarketData;
 using SwingAdviser.Infrastructure.Persistence;
@@ -153,6 +154,67 @@ public class MarketDataIngestionTests
         Assert.True(targets[1].RefreshChart);
         Assert.Equal(windowStartUtc, targets[1].ChartPeriodStartUtc);
         Assert.False(targets[1].RefreshFundamentals);
+    }
+
+    [Fact]
+    public async Task RefreshCheckpoint_ReusesOnlyMatchingValidSuccess_AndDetectsExpiryOrRevisions()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var now = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var evaluation = new DateOnly(2026, 8, 28);
+        var instrument = new Instrument { FirstObservedAtUtc = now };
+        context.Instruments.Add(instrument);
+        context.DailyUpdateRuns.Add(new DailyUpdateRun { StartedAtUtc = now, Status = "Succeeded", CompletedAtUtc = now });
+        await context.SaveChangesAsync();
+        context.DailyBars.Add(new DailyBar
+        {
+            InstrumentId = instrument.InstrumentId, TradingDate = evaluation, Open = 100m, High = 110m, Low = 90m, Close = 105m, Volume = 1000,
+            Source = "YahooFinanceChartApiV8", FetchedAtUtc = now, Revision = 1, Status = "Final",
+        });
+        await context.SaveChangesAsync();
+        var repository = new MarketDataRepository(context);
+        var fingerprint = await repository.GetSourceFingerprintAsync("YahooFinanceChartApiV8", instrument.InstrumentId, evaluation, evaluation.AddDays(-30), CancellationToken.None);
+        var checkpoint = await repository.StartFetchCheckpointAsync(1, evaluation, "YahooFinanceChartApiV8", instrument.InstrumentId, instrument.InstrumentId.ToString(), evaluation.AddDays(-30), now, TimeSpan.FromHours(1), null, CancellationToken.None);
+        await repository.CompleteFetchCheckpointAsync(checkpoint.DailyUpdateFetchCheckpointId, "Succeeded", fingerprint, evaluation, now, CancellationToken.None);
+
+        var reusable = await repository.GetFetchCheckpointDecisionAsync(evaluation, "YahooFinanceChartApiV8", instrument.InstrumentId, instrument.InstrumentId.ToString(), fingerprint, now.AddMinutes(30), CancellationToken.None);
+        Assert.Equal(FetchCheckpointDisposition.Reusable, reusable.Disposition);
+        var expired = await repository.GetFetchCheckpointDecisionAsync(evaluation, "YahooFinanceChartApiV8", instrument.InstrumentId, instrument.InstrumentId.ToString(), fingerprint, now.AddHours(2), CancellationToken.None);
+        Assert.Equal(FetchCheckpointDisposition.RetryExpired, expired.Disposition);
+
+        var original = await context.DailyBars.SingleAsync();
+        var correction = new DailyBar
+        {
+            InstrumentId = instrument.InstrumentId, TradingDate = evaluation, Open = 100m, High = 110m, Low = 90m, Close = 106m, Volume = 1000,
+            Source = "YahooFinanceChartApiV8", FetchedAtUtc = now.AddMinutes(1), Revision = 2, SupersedesId = original.DailyBarId, Status = "Corrected",
+        };
+        context.DailyBars.Add(correction);
+        await context.SaveChangesAsync();
+        var changedFingerprint = await repository.GetSourceFingerprintAsync("YahooFinanceChartApiV8", instrument.InstrumentId, evaluation, evaluation.AddDays(-30), CancellationToken.None);
+        var changed = await repository.GetFetchCheckpointDecisionAsync(evaluation, "YahooFinanceChartApiV8", instrument.InstrumentId, instrument.InstrumentId.ToString(), changedFingerprint, now.AddMinutes(30), CancellationToken.None);
+        Assert.Equal(FetchCheckpointDisposition.RetryDataChanged, changed.Disposition);
+    }
+
+    [Fact]
+    public async Task RefreshPlanning_UsesShortOverlapForNewEvaluationDateWhenHistoryAlreadyExists()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var now = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var instrument = new Instrument { FirstObservedAtUtc = now };
+        context.Instruments.Add(instrument);
+        await context.SaveChangesAsync();
+        context.DailyBars.AddRange(
+            new DailyBar { InstrumentId = instrument.InstrumentId, TradingDate = new DateOnly(2021, 8, 30), Open = 100m, High = 101m, Low = 99m, Close = 100m, Volume = 1, Source = "YahooFinanceChartApiV8", FetchedAtUtc = now, Revision = 1, Status = "Final" },
+            new DailyBar { InstrumentId = instrument.InstrumentId, TradingDate = new DateOnly(2026, 8, 28), Open = 100m, High = 101m, Low = 99m, Close = 100m, Volume = 1, Source = "YahooFinanceChartApiV8", FetchedAtUtc = now, Revision = 1, Status = "Final" });
+        await context.SaveChangesAsync();
+        var fullStart = new DateTime(2021, 8, 28, 0, 0, 0, DateTimeKind.Utc);
+        var targets = await new MarketDataRepository(context).CreateRefreshTargetsAsync([(instrument.InstrumentId, "7203")], new DateOnly(2026, 8, 31), now, fullStart, CancellationToken.None);
+
+        var target = Assert.Single(targets);
+        Assert.True(target.RefreshChart);
+        Assert.Equal(new DateTime(2026, 8, 14, 0, 0, 0, DateTimeKind.Utc), target.ChartPeriodStartUtc);
     }
 
     [Fact]

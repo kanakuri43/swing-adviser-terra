@@ -271,6 +271,7 @@ manifest が適用した企業アクションの改訂を列挙する。
 |---|---|---|
 | fetch_result_id | INTEGER PK | |
 | daily_update_run_id | INTEGER NULL FK → daily_update_runs | 手動個別取得の場合は NULL |
+| daily_update_fetch_checkpoint_id | INTEGER NULL FK → daily_update_fetch_checkpoints | 再開判定に使った取得チェックポイント。既存の監査行は NULL を許容 |
 | source_kind | TEXT | `PriceData` / `CorporateAction` / `InstrumentMaster` / `MarginRegulation` / `Backwardation` / `FundamentalData` |
 | instrument_id | INTEGER NULL FK → instruments | 一覧系取得（銘柄マスタ等）は NULL |
 | status | TEXT | `Succeeded` / `Failed` |
@@ -280,6 +281,13 @@ manifest が適用した企業アクションの改訂を列挙する。
 | attempted_at_utc | TEXT | |
 
 1 銘柄・1 情報源の失敗で全体を停止しない設計に対応する（[`product-spec.md`](./product-spec.md)）。
+
+### `daily_update_fetch_checkpoints`
+同じ評価日の更新を中断後に再開するための、取得種別・銘柄ごとの耐久チェックポイント。`external_fetch_results` は各通信試行の監査原票、こちらは再利用可否を示す状態であり、役割を混同しない。
+
+主な列: `daily_update_run_id`, `evaluation_bar_date`, `source_kind`, `target_key`（一覧系は `global`、銘柄系は内部ID文字列）、`instrument_id` NULL可、`requested_range_start_date`, `covered_through_date`, `data_revision_fingerprint`, `status`（`Running` / `Succeeded` / `Failed` / `Interrupted`）、`invalidation_reason`, `started_at_utc`, `completed_at_utc`, `valid_until_utc`, `reused_from_checkpoint_id`。
+
+再利用は、同一 `evaluation_bar_date`・種別・対象で、`Succeeded`、期限内、かつ現在の日足・企業アクション・履歴カバレッジ（またはJPX revision集合）のfingerprintが一致する場合だけ許可する。中断、失敗、期限切れ、fingerprint不一致は再取得する。Yahoo chartは日足と企業アクションを同一取得単位として扱い、成功チェックポイントは両者と履歴カバレッジの保存後にだけ確定する。検索インデックスは `(evaluation_bar_date, source_kind, target_key, completed_at_utc)`。
 
 ### `scan_runs`
 全銘柄スキャン（指標計算・候補評価）1 回分の実行記録。

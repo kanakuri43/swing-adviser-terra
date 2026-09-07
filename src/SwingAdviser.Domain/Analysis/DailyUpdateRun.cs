@@ -10,5 +10,6 @@ public sealed class DailyUpdateRun
     public string? StepSummaryJson { get; set; }
 
     public ICollection<ExternalFetchResult> ExternalFetchResults { get; } = new List<ExternalFetchResult>();
+    public ICollection<DailyUpdateFetchCheckpoint> FetchCheckpoints { get; } = new List<DailyUpdateFetchCheckpoint>();
     public ICollection<ScanRun> ScanRuns { get; } = new List<ScanRun>();
 }

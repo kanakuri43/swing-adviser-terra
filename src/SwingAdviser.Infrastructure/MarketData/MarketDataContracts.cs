@@ -62,6 +62,13 @@ public sealed record InstrumentRefreshTarget(
     DateTime? ChartPeriodStartUtc,
     bool RefreshFundamentals);
 
+public enum FetchCheckpointDisposition { Missing, Reusable, RetryInterruptedOrFailed, RetryExpired, RetryDataChanged }
+
+public sealed record FetchCheckpointDecision(FetchCheckpointDisposition Disposition, int? CheckpointId)
+{
+    public bool CanReuse => Disposition == FetchCheckpointDisposition.Reusable;
+}
+
 public interface IJpxListedIssuesSource
 {
     Task<ListedInstrumentSourceSnapshot> FetchAsync(CancellationToken cancellationToken);
