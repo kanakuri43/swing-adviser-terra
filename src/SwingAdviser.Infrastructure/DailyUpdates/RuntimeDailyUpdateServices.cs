@@ -14,7 +14,7 @@ namespace SwingAdviser.Infrastructure.DailyUpdates;
 /// <summary>Desktop composition root for a user-triggered, non-trading daily analysis update.</summary>
 public sealed class RuntimeDailyUpdateServices : IDisposable
 {
-    private const string DefaultJpxListedIssuesUrl = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls";
+    private const string DefaultJpxListedIssuesUrl = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xlsx";
     private const string DefaultJpxMarginIssuesUrl = "https://www.jpx.co.jp/listing/others/margin/index.html";
     private readonly SwingAdviserDbContext _context;
     private readonly HttpClient _httpClient;

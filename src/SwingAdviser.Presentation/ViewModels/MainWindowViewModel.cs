@@ -17,6 +17,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private UpdateProgressRow _aiQueueProgress = new("未実行", 0, false, "AIチェックはまだありません。", "AIチェックは日次分析の完了を待たず、設定で有効な場合だけ自動投入します。");
     private bool _isUpdateRunning;
     private bool _isDisplayLoading;
+    private CandidateRow? _selectedCandidate;
     private string _dailyUpdateDetailBeforeHeartbeat = "日次分析更新はまだ実行されていません。";
 
     public string StatusMessage { get => _statusMessage; private set => Set(ref _statusMessage, value); }
@@ -24,11 +25,9 @@ public sealed class MainWindowViewModel : ObservableObject
     public UpdateProgressRow AiQueueProgress { get => _aiQueueProgress; private set => Set(ref _aiQueueProgress, value); }
     public bool IsUpdateRunning { get => _isUpdateRunning; private set => Set(ref _isUpdateRunning, value); }
     public bool IsDisplayLoading { get => _isDisplayLoading; private set => Set(ref _isDisplayLoading, value); }
-
-    public string CandidateCaption => "スコアは候補条件への一致度を表す参考情報であり、勝率や利益を保証するものではありません。";
+    public CandidateRow? SelectedCandidate { get => _selectedCandidate; set => Set(ref _selectedCandidate, value); }
 
     public ObservableCollection<CandidateRow> Candidates { get; } = [];
-    public ObservableCollection<ExcludedCandidateRow> ExcludedCandidates { get; } = [];
     public ObservableCollection<PositionRow> Positions { get; } = [];
     public ObservableCollection<ExecutionRow> Executions { get; } = [];
 
@@ -206,13 +205,6 @@ public sealed record UpdateProgressRow(
     bool IsIndeterminate,
     string Summary,
     string Detail);
-
-public sealed record ExcludedCandidateRow(
-    string Code,
-    string Name,
-    string DataStatus,
-    string History,
-    string ExclusionReason);
 
 public sealed record PositionRow(
     string Code,

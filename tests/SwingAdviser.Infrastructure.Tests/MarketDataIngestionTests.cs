@@ -339,6 +339,17 @@ public class MarketDataIngestionTests
         Assert.Equal("Timeout", timeout.ErrorKind);
     }
 
+    [Fact]
+    public async Task JpxMarginIssuesClient_TimesOutWhenResponseContentStallsAfterHeaders()
+    {
+        using var client = new HttpClient(new ResponseContentStallHandler()) { Timeout = TimeSpan.FromMilliseconds(100) };
+        var source = new JpxMarginIssuesClient(client, new Uri("https://example.invalid/margin.html"));
+
+        var timeout = await Assert.ThrowsAsync<ExternalDataFetchException>(() => source.FetchAsync(CancellationToken.None));
+
+        Assert.Equal("Timeout", timeout.ErrorKind);
+    }
+
     private static SqliteConnection OpenMigratedConnection()
     {
         var connection = new SqliteConnection("Data Source=:memory:");
@@ -384,6 +395,27 @@ public class MarketDataIngestionTests
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
+    private sealed class ResponseContentStallHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ResponseContentStallContent() });
+    }
+
+    private sealed class ResponseContentStallContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+            => Task.Delay(Timeout.InfiniteTimeSpan);
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
+            => Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
         }
     }
 

@@ -128,18 +128,6 @@ public partial class MainWindow
         _ => status,
     };
 
-    private static T? FindAncestor<T>(System.Windows.DependencyObject? element) where T : System.Windows.DependencyObject
-    {
-        while (element is not null)
-        {
-            if (element is T match) return match;
-            element = element is System.Windows.Media.Visual
-                ? System.Windows.Media.VisualTreeHelper.GetParent(element)
-                : System.Windows.LogicalTreeHelper.GetParent(element);
-        }
-        return null;
-    }
-
     private async void QueueCandidateAiCheck(object sender, System.Windows.RoutedEventArgs e)
     {
         if ((sender as System.Windows.FrameworkElement)?.DataContext is not ViewModels.CandidateRow candidate) return;
@@ -149,15 +137,6 @@ public partial class MainWindow
     private async void QueueSelectedCandidateAiChecks(object sender, System.Windows.RoutedEventArgs e)
     {
         await QueueAiChecksAsync(CandidateGrid.SelectedItems.OfType<ViewModels.CandidateRow>());
-    }
-
-    private void ToggleCandidateDetail(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        var source = e.OriginalSource as System.Windows.DependencyObject;
-        if (FindAncestor<System.Windows.Controls.Button>(source) is not null) return;
-        if (FindAncestor<System.Windows.Controls.DataGridRow>(source) is not { IsSelected: true }) return;
-        CandidateGrid.UnselectAll();
-        e.Handled = true;
     }
 
     private async void CancelOrRetryAiCheck(object sender, System.Windows.RoutedEventArgs e)

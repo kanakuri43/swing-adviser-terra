@@ -219,12 +219,13 @@ internal static class HttpFetch
 {
     public static async Task<byte[]> ReadBytesAsync(HttpClient httpClient, Uri uri, CancellationToken cancellationToken)
     {
+        using var requestTimeout = CreateRequestTimeout(httpClient, cancellationToken);
         try
         {
-            using var response = await httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            using var response = await httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, requestTimeout.Token);
             if (!response.IsSuccessStatusCode)
                 throw new ExternalDataFetchException(response.StatusCode == (HttpStatusCode)429 ? "RateLimit" : "HttpError", $"External source returned HTTP {(int)response.StatusCode}.");
-            return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            return await response.Content.ReadAsByteArrayAsync(requestTimeout.Token);
         }
         catch (ExternalDataFetchException) { throw; }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw new ExternalDataFetchException("Timeout", "External source request timed out."); }
@@ -233,15 +234,16 @@ internal static class HttpFetch
 
     public static async Task<string> ReadTextAsync(HttpClient httpClient, Uri uri, CancellationToken cancellationToken)
     {
+        using var requestTimeout = CreateRequestTimeout(httpClient, cancellationToken);
         try
         {
-            using var response = await httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            using var response = await httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, requestTimeout.Token);
             if (!response.IsSuccessStatusCode)
             {
                 throw new ExternalDataFetchException(response.StatusCode == (HttpStatusCode)429 ? "RateLimit" : "HttpError", $"External source returned HTTP {(int)response.StatusCode}.");
             }
 
-            return await response.Content.ReadAsStringAsync(cancellationToken);
+            return await response.Content.ReadAsStringAsync(requestTimeout.Token);
         }
         catch (ExternalDataFetchException)
         {
@@ -255,6 +257,17 @@ internal static class HttpFetch
         {
             throw new ExternalDataFetchException("NetworkError", "External source request failed.", exception);
         }
+    }
+
+    /// <summary>
+    /// HttpClient.Timeout only covers GetAsync until headers arrive when ResponseHeadersRead is used.
+    /// Apply the same deadline to the response-content read so a source that stalls mid-response cannot hold a daily update indefinitely.
+    /// </summary>
+    private static CancellationTokenSource CreateRequestTimeout(HttpClient httpClient, CancellationToken cancellationToken)
+    {
+        var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(httpClient.Timeout);
+        return timeout;
     }
 }
 

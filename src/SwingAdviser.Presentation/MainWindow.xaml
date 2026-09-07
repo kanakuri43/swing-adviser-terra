@@ -114,13 +114,12 @@
             <TabItem Header="候補">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="3*" />
+                        <RowDefinition Height="2*" />
                     </Grid.RowDefinitions>
                     <DataGrid x:Name="CandidateGrid" AutoGenerateColumns="False" FrozenColumnCount="3" IsReadOnly="True" SelectionMode="Extended"
-                              PreviewMouseLeftButtonDown="ToggleCandidateDetail"
-                              CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding Candidates}" RowDetailsVisibilityMode="VisibleWhenSelected">
+                              CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding Candidates}"
+                              SelectedItem="{Binding SelectedCandidate, Mode=TwoWay}">
                         <DataGrid.Columns>
                             <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
                             <DataGridTextColumn Width="170" Binding="{Binding Name}" Header="銘柄名" />
@@ -158,50 +157,49 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
                         </DataGrid.Columns>
-                        <DataGrid.RowDetailsTemplate>
-                            <DataTemplate>
-                                <Border Margin="18,4" Padding="10" Background="{DynamicResource MahApps.Brushes.Gray9}" CornerRadius="3">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock FontWeight="SemiBold" Text="候補の根拠" />
-                                            <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding EvaluationBarDate, StringFormat=判定基準バー日: {0}}" />
-                                            <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding EntryType, StringFormat=Entry種別: {0}}" />
-                                            <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding Strategy, StringFormat=適用戦略: {0}}" />
-                                            <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding Confidence, StringFormat=信頼度: {0}}" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Margin="16,0,0,0">
-                                            <TextBlock FontWeight="SemiBold" Text="AIチェックの状態・結果" />
-                                            <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding AiStatusDescription}" />
-                                            <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding AiSummary, TargetNullValue=AI結果はまだありません。}" />
-                                            <TextBlock Margin="0,4,0,0" Style="{StaticResource MutedText}" Text="AI Verdict は市場見通しであり、売買推奨ではありません。情報不足はNeutral（中立）とは区別して表示します。" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </DataGrid.RowDetailsTemplate>
                     </DataGrid>
-                    <Expander Grid.Row="1" Margin="0,8,0,0" IsExpanded="True" Header="対象外・データ不足（最新スキャンの詳細は更新履歴で確認）">
-                        <DataGrid Margin="0,4,0,0" MaxHeight="145" AutoGenerateColumns="False" IsReadOnly="True"
-                                  CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding ExcludedCandidates}">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Width="90" Binding="{Binding Code}" Header="コード" />
-                                <DataGridTextColumn Width="190" Binding="{Binding Name}" Header="銘柄名" />
-                                <DataGridTextColumn Width="175" Binding="{Binding DataStatus}" Header="データ状態" />
-                                <DataGridTextColumn Width="155" Binding="{Binding History}" Header="保有 / 必要履歴本数" />
-                                <DataGridTextColumn Width="*" Binding="{Binding ExclusionReason}" Header="除外理由・確認事項" />
-                            </DataGrid.Columns>
-                        </DataGrid>
-                    </Expander>
-                    <StackPanel Grid.Row="2" Margin="0,8,0,0">
-                        <Button HorizontalAlignment="Left" Padding="10,4" Click="QueueSelectedCandidateAiChecks" Content="選択した候補をAIチェック" ToolTip="選択した候補をまとめて永続キューへ追加します。注文・約定は行いません。" />
-                        <TextBlock Style="{StaticResource MutedText}" Text="{Binding CandidateCaption}" />
-                        <TextBlock Margin="0,3,0,0" Style="{StaticResource MutedText}" Text="行を選択すると、候補根拠とAI結果の詳細を表示します。表示中の行または詳細をクリックすると折りたたみます。AI Verdict は売買推奨ではありません。Long + Bullish / Short + Bearish は候補方向と整合、逆の組合せは候補方向と逆、Neutral は中立として表示します。情報不足はNeutralへ変換しません。" />
-                        <TextBlock Margin="0,3,0,0" Style="{StaticResource MutedText}" Text="対象外は条件不一致と混同せず、履歴不足・データ不正・point-in-time 非保証などの理由を表示します。" />
-                    </StackPanel>
+                    <Border Grid.Row="1" Margin="0,8,0,0" Padding="12" Background="{DynamicResource MahApps.Brushes.Gray9}" CornerRadius="3">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <DockPanel>
+                                <TextBlock FontWeight="SemiBold" FontSize="16" Text="候補詳細" />
+                                <Button DockPanel.Dock="Right" Padding="10,4" Click="QueueSelectedCandidateAiChecks" Content="選択した候補をAIチェック" ToolTip="選択した候補をまとめて永続キューへ追加します。注文・約定は行いません。" />
+                            </DockPanel>
+                            <ContentControl Grid.Row="1" Margin="0,10,0,0" Content="{Binding SelectedCandidate}">
+                                <ContentControl.ContentTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock FontWeight="SemiBold" Text="候補の根拠" />
+                                                <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding Code, StringFormat=コード: {0}}" />
+                                                <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding Name, StringFormat=銘柄名: {0}}" />
+                                                <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding EvaluationBarDate, StringFormat=判定基準バー日: {0}}" />
+                                                <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding EntryType, StringFormat=Entry種別: {0}}" />
+                                                <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding Strategy, StringFormat=適用戦略: {0}}" />
+                                                <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding Confidence, StringFormat=信頼度: {0}}" />
+                                                <TextBlock Margin="0,6,0,0" FontWeight="SemiBold" Text="主な判定理由" />
+                                                <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding PrimaryReason}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                                                <TextBlock FontWeight="SemiBold" Text="AIチェックの状態・結果" />
+                                                <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding AiStatusDescription}" />
+                                                <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding AiVerdict, StringFormat=Verdict: {0}, TargetNullValue=Verdict: 未取得}" />
+                                                <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding AiVerdictAlignment, TargetNullValue=候補方向との関係は未取得です。}" />
+                                                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Text="{Binding AiSummary, TargetNullValue=AI結果はまだありません。}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ContentControl.ContentTemplate>
+                            </ContentControl>
+                        </Grid>
+                    </Border>
                 </Grid>
             </TabItem>
 

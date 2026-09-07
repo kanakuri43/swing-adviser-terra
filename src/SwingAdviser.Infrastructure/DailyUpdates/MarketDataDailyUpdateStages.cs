@@ -28,38 +28,56 @@ public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingest
             historyStartUtc,
             cancellationToken);
         var plannedTargets = new List<(InstrumentRefreshTarget Target, int? CheckpointId)>();
+        update.ReportStageProgress($"ステップ 1/11: {refreshTargets.Count:n0}銘柄の更新計画と再開可能な取得結果を確認しています。", 0, refreshTargets.Count);
+        var plannedCount = 0;
         foreach (var target in refreshTargets)
         {
-            var fingerprint = await repository.GetSourceFingerprintAsync("YahooFinanceChartApiV8", target.InstrumentId, update.Request.EvaluationBarDate, historyStart, cancellationToken);
-            var decision = await repository.GetFetchCheckpointDecisionAsync(update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
-                target.InstrumentId.ToString(), fingerprint, DateTime.UtcNow, cancellationToken);
-            if (!target.RefreshChart && decision.CanReuse)
+            try
             {
-                var reused = await repository.RecordReusedCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
-                    target.InstrumentId.ToString(), decision.CheckpointId!.Value, fingerprint, target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value),
-                    update.Request.EvaluationBarDate, DateTime.UtcNow, checkpointValidity, cancellationToken);
-                await repository.RecordFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, "Reused", null,
-                    "A valid same-evaluation-date checkpoint was reused.", 0, DateTime.UtcNow, cancellationToken);
-                await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, reused.DailyUpdateFetchCheckpointId, cancellationToken);
-                plannedTargets.Add((target, reused.DailyUpdateFetchCheckpointId));
-                continue;
+                var decision = await repository.GetFetchCheckpointDecisionAsync(update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
+                    target.InstrumentId.ToString(), null, DateTime.UtcNow, cancellationToken);
+                string? fingerprint = null;
+                if (decision.CanReuse)
+                {
+                    fingerprint = await repository.GetSourceFingerprintAsync("YahooFinanceChartApiV8", target.InstrumentId, update.Request.EvaluationBarDate, historyStart, cancellationToken);
+                    decision = await repository.GetFetchCheckpointDecisionAsync(update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
+                        target.InstrumentId.ToString(), fingerprint, DateTime.UtcNow, cancellationToken);
+                }
+                if (!target.RefreshChart && decision.CanReuse)
+                {
+                    var reused = await repository.RecordReusedCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
+                        target.InstrumentId.ToString(), decision.CheckpointId!.Value, fingerprint!, target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value),
+                        update.Request.EvaluationBarDate, DateTime.UtcNow, checkpointValidity, cancellationToken);
+                    await repository.RecordFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, "Reused", null,
+                        "A valid same-evaluation-date checkpoint was reused.", 0, DateTime.UtcNow, cancellationToken);
+                    await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, reused.DailyUpdateFetchCheckpointId, cancellationToken);
+                    plannedTargets.Add((target, reused.DailyUpdateFetchCheckpointId));
+                    continue;
+                }
+                if (!target.RefreshChart && decision.Disposition == FetchCheckpointDisposition.Missing)
+                {
+                    // Existing verified cache from before this feature is safe to adopt, but is explicitly audited.
+                    fingerprint = await repository.GetSourceFingerprintAsync("YahooFinanceChartApiV8", target.InstrumentId, update.Request.EvaluationBarDate, historyStart, cancellationToken);
+                    var adopted = await repository.StartFetchCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
+                        target.InstrumentId.ToString(), target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value), DateTime.UtcNow, checkpointValidity, "CacheValidated", cancellationToken);
+                    await repository.CompleteFetchCheckpointAsync(adopted.DailyUpdateFetchCheckpointId, "Succeeded", fingerprint, update.Request.EvaluationBarDate, DateTime.UtcNow, cancellationToken);
+                    await repository.RecordFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, "Reused", null,
+                        "A final cached chart and history window were validated for this evaluation date.", 0, DateTime.UtcNow, cancellationToken);
+                    await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, adopted.DailyUpdateFetchCheckpointId, cancellationToken);
+                    plannedTargets.Add((target, adopted.DailyUpdateFetchCheckpointId));
+                    continue;
+                }
+                var checkpoint = await repository.StartFetchCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
+                    target.InstrumentId.ToString(), target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value), DateTime.UtcNow, checkpointValidity,
+                    decision.Disposition == FetchCheckpointDisposition.Missing ? null : decision.Disposition.ToString(), cancellationToken);
+                plannedTargets.Add((target with { RefreshChart = true }, checkpoint.DailyUpdateFetchCheckpointId));
             }
-            if (!target.RefreshChart && decision.Disposition == FetchCheckpointDisposition.Missing)
+            finally
             {
-                // Existing verified cache from before this feature is safe to adopt, but is explicitly audited.
-                var adopted = await repository.StartFetchCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
-                    target.InstrumentId.ToString(), target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value), DateTime.UtcNow, checkpointValidity, "CacheValidated", cancellationToken);
-                await repository.CompleteFetchCheckpointAsync(adopted.DailyUpdateFetchCheckpointId, "Succeeded", fingerprint, update.Request.EvaluationBarDate, DateTime.UtcNow, cancellationToken);
-                await repository.RecordFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, "Reused", null,
-                    "A final cached chart and history window were validated for this evaluation date.", 0, DateTime.UtcNow, cancellationToken);
-                await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, adopted.DailyUpdateFetchCheckpointId, cancellationToken);
-                plannedTargets.Add((target, adopted.DailyUpdateFetchCheckpointId));
-                continue;
+                plannedCount++;
+                if (plannedCount % 25 == 0 || plannedCount == refreshTargets.Count)
+                    update.ReportStageProgress($"ステップ 1/11: {refreshTargets.Count:n0}銘柄の更新計画を確認中（{plannedCount:n0}/{refreshTargets.Count:n0}銘柄）。", plannedCount, refreshTargets.Count);
             }
-            var checkpoint = await repository.StartFetchCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
-                target.InstrumentId.ToString(), target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value), DateTime.UtcNow, checkpointValidity,
-                decision.Disposition == FetchCheckpointDisposition.Missing ? null : decision.Disposition.ToString(), cancellationToken);
-            plannedTargets.Add((target with { RefreshChart = true }, checkpoint.DailyUpdateFetchCheckpointId));
         }
         var chartRequestCount = plannedTargets.Count(item => item.Target.RefreshChart);
         var cacheHitCount = plannedTargets.Count - chartRequestCount;

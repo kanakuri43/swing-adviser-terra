@@ -6,7 +6,7 @@ Phase 12 の「日次分析を更新」は、利用者が明示的に開始す�
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `SWING_ADVISER_JPX_LISTED_ISSUES_URL` | JPX上場銘柄一覧の取得先を上書きする絶対URL（CSV/TSV/XLS/XLSX） | [JPX公式 `data_j.xls`](https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls) |
+| `SWING_ADVISER_JPX_LISTED_ISSUES_URL` | JPX上場銘柄一覧の取得先を上書きする絶対URL（CSV/TSV/XLS/XLSX） | [JPX公式 `data_j.xlsx`](https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xlsx) |
 | `SWING_ADVISER_JPX_MARGIN_ISSUES_URL` | JPX信用・貸借銘柄一覧の取得先を上書きする絶対URL | [JPX公式一覧HTML](https://www.jpx.co.jp/listing/others/margin/index.html) |
 | `SWING_ADVISER_YAHOO_BASE_URL` | Yahoo Finance APIのベースURL | `https://query1.finance.yahoo.com/` |
 | `SWING_ADVISER_DATA_TIMEOUT_SECONDS` | 外部データ要求のタイムアウト秒数 | `60` |

@@ -27,7 +27,7 @@ C:\Users\su\source\repos\swing-adviser-terra\src\SwingAdviser.Presentation\bin\R
 
 | 用途 | 既定の取得先 | 上書きが必要な場合 |
 | --- | --- | --- |
-| 上場銘柄一覧 | JPX公式 `data_j.xls` | プロキシ・ミラー等を使うときだけ `SWING_ADVISER_JPX_LISTED_ISSUES_URL` |
+| 上場銘柄一覧 | JPX公式 `data_j.xlsx` | プロキシ・ミラー等を使うときだけ `SWING_ADVISER_JPX_LISTED_ISSUES_URL` |
 | 制度信用・貸借一覧 | JPX公式一覧HTML | 別の公式取得先へ変えるときだけ `SWING_ADVISER_JPX_MARGIN_ISSUES_URL` |
 
 上場銘柄一覧の取得処理はXLS/CSV/TSV/XLSXを受け付けます。既定のJPX XLSは、既存のStock Simulatorと同じ形式・URLです。

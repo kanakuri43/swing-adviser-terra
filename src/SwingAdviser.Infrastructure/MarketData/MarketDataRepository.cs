@@ -75,7 +75,7 @@ public sealed class MarketDataRepository
     }
 
     public async Task<FetchCheckpointDecision> GetFetchCheckpointDecisionAsync(DateOnly evaluationBarDate, string sourceKind, int? instrumentId,
-        string targetKey, string currentFingerprint, DateTime nowUtc, CancellationToken cancellationToken)
+        string targetKey, string? currentFingerprint, DateTime nowUtc, CancellationToken cancellationToken)
     {
         var checkpoint = await _context.DailyUpdateFetchCheckpoints
             .Where(item => item.EvaluationBarDate == evaluationBarDate && item.SourceKind == sourceKind && item.TargetKey == targetKey)
@@ -83,6 +83,9 @@ public sealed class MarketDataRepository
         if (checkpoint is null) return new(FetchCheckpointDisposition.Missing, null);
         if (checkpoint.Status != "Succeeded") return new(FetchCheckpointDisposition.RetryInterruptedOrFailed, checkpoint.DailyUpdateFetchCheckpointId);
         if (checkpoint.ValidUntilUtc < nowUtc) return new(FetchCheckpointDisposition.RetryExpired, checkpoint.DailyUpdateFetchCheckpointId);
+        // Callers may first check whether a completed checkpoint is even eligible for comparison.
+        // This avoids loading a multi-year history merely to reject a missing, failed, or expired checkpoint.
+        if (currentFingerprint is null) return new(FetchCheckpointDisposition.Reusable, checkpoint.DailyUpdateFetchCheckpointId);
         if (!string.Equals(checkpoint.DataRevisionFingerprint, currentFingerprint, StringComparison.Ordinal)) return new(FetchCheckpointDisposition.RetryDataChanged, checkpoint.DailyUpdateFetchCheckpointId);
         return new(FetchCheckpointDisposition.Reusable, checkpoint.DailyUpdateFetchCheckpointId);
     }
