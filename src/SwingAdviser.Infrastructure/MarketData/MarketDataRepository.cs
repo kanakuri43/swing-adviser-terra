@@ -170,6 +170,88 @@ public sealed class MarketDataRepository
         await _context.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Finalizes a bounded group of chart fetches in one SQLite save. The previous per-instrument
+    /// path incurred several reads and two writes for every instrument after network I/O had ended.
+    /// </summary>
+    public async Task<IReadOnlyList<FetchCheckpointFinalization>> FinalizeChartFetchCheckpointsAsync(int runId,
+        DateOnly evaluationBarDate, DateOnly historyStartDate, IReadOnlyCollection<FetchCheckpointFinalizationTarget> targets,
+        DateTime completedAtUtc, CancellationToken cancellationToken)
+    {
+        if (targets.Count == 0) return Array.Empty<FetchCheckpointFinalization>();
+
+        var targetByInstrument = targets.ToDictionary(item => item.InstrumentId);
+        var instrumentIds = targetByInstrument.Keys.ToArray();
+        _context.ChangeTracker.Clear();
+
+        var latestFetches = (await _context.ExternalFetchResults
+            .Where(item => item.DailyUpdateRunId == runId && item.SourceKind == "YahooFinanceChartApiV8" && item.InstrumentId.HasValue && instrumentIds.Contains(item.InstrumentId.Value))
+            .ToListAsync(cancellationToken))
+            .GroupBy(item => item.InstrumentId!.Value)
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(item => item.FetchResultId).First());
+        var succeededInstrumentIds = latestFetches.Values.Where(item => item.Status == "Succeeded").Select(item => item.InstrumentId!.Value).ToArray();
+        var fingerprints = await GetYahooChartSourceFingerprintsAsync(succeededInstrumentIds, evaluationBarDate, historyStartDate, cancellationToken);
+        var checkpointIds = targets.Select(item => item.CheckpointId).ToArray();
+        var checkpoints = await _context.DailyUpdateFetchCheckpoints
+            .Where(item => checkpointIds.Contains(item.DailyUpdateFetchCheckpointId))
+            .ToDictionaryAsync(item => item.DailyUpdateFetchCheckpointId, cancellationToken);
+
+        if (checkpoints.Count != targets.Count)
+            throw new InvalidOperationException("A chart fetch checkpoint was not found while finalizing the daily update.");
+
+        var finalized = new List<FetchCheckpointFinalization>(targets.Count);
+        foreach (var target in targets)
+        {
+            latestFetches.TryGetValue(target.InstrumentId, out var fetch);
+            var succeeded = fetch?.Status == "Succeeded";
+            var checkpoint = checkpoints[target.CheckpointId];
+            checkpoint.Status = succeeded ? "Succeeded" : "Failed";
+            checkpoint.DataRevisionFingerprint = succeeded ? fingerprints[target.InstrumentId] : null;
+            checkpoint.CoveredThroughDate = succeeded ? evaluationBarDate : null;
+            checkpoint.CompletedAtUtc = completedAtUtc;
+            if (fetch is not null) fetch.DailyUpdateFetchCheckpointId = target.CheckpointId;
+            finalized.Add(new FetchCheckpointFinalization(target.InstrumentId, fetch?.Status ?? "Missing"));
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+        _context.ChangeTracker.Clear();
+        return finalized;
+    }
+
+    private async Task<IReadOnlyDictionary<int, string>> GetYahooChartSourceFingerprintsAsync(IReadOnlyCollection<int> instrumentIds,
+        DateOnly evaluationBarDate, DateOnly historyStartDate, CancellationToken cancellationToken)
+    {
+        if (instrumentIds.Count == 0) return new Dictionary<int, string>();
+
+        var ids = instrumentIds.Distinct().ToArray();
+        var bars = await _context.DailyBars.AsNoTracking()
+            .Where(item => ids.Contains(item.InstrumentId) && item.TradingDate >= historyStartDate && item.TradingDate <= evaluationBarDate)
+            .ToListAsync(cancellationToken);
+        var actions = await _context.CorporateActions.AsNoTracking()
+            .Where(item => ids.Contains(item.InstrumentId) && item.EffectiveDate <= evaluationBarDate)
+            .ToListAsync(cancellationToken);
+        var coverages = await _context.DailyBarHistoryCoverages.AsNoTracking()
+            .Where(item => ids.Contains(item.InstrumentId) && item.Source == "YahooFinanceChartApiV8")
+            .ToListAsync(cancellationToken);
+
+        var fingerprints = new Dictionary<int, string>(ids.Length);
+        foreach (var instrumentId in ids)
+        {
+            var values = new List<string> { "YahooFinanceChartApiV8", instrumentId.ToString(), evaluationBarDate.ToString("yyyy-MM-dd") };
+            values.AddRange(bars.Where(item => item.InstrumentId == instrumentId).GroupBy(item => item.TradingDate)
+                .Select(group => group.OrderByDescending(item => item.Revision).First()).OrderBy(item => item.TradingDate)
+                .Select(item => $"b:{item.DailyBarId}:{item.TradingDate:yyyy-MM-dd}:{item.Revision}:{item.Status}"));
+            values.AddRange(actions.Where(item => item.InstrumentId == instrumentId).GroupBy(item => item.SourceEventId)
+                .Select(group => group.OrderByDescending(item => item.Revision).First()).OrderBy(item => item.SourceEventId)
+                .Select(item => $"a:{item.CorporateActionId}:{item.Revision}:{item.Status}"));
+            var coverage = coverages.Where(item => item.InstrumentId == instrumentId).OrderByDescending(item => item.Revision).FirstOrDefault();
+            values.Add(coverage is null ? "coverage:none" : $"coverage:{coverage.DailyBarHistoryCoverageId}:{coverage.Revision}:{coverage.Status}:{coverage.LatestReturnedDate:yyyy-MM-dd}");
+            fingerprints[instrumentId] = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("|", values)))).ToLowerInvariant();
+        }
+
+        return fingerprints;
+    }
+
     private static DateTime IncrementalStart(DateTime fullWindowStartUtc, DateOnly? latestCachedDate)
     {
         if (!latestCachedDate.HasValue) return fullWindowStartUtc;

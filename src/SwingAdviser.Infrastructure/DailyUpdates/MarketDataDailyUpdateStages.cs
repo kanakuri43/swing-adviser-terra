@@ -91,23 +91,20 @@ public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingest
         var finalizedFailedCount = 0;
         var finalizedUnknownCount = 0;
         update.ReportStageProgress($"ステップ 1/11: 株価取得結果を確定保存しています（0/{chartRequestCount:n0}銘柄）。", 0, chartRequestCount);
-        foreach (var item in plannedTargets.Where(item => item.Target.RefreshChart))
+        foreach (var batch in plannedTargets.Where(item => item.Target.RefreshChart)
+                     .Select(item => new FetchCheckpointFinalizationTarget(item.Target.InstrumentId, item.CheckpointId!.Value)).Chunk(100))
         {
-            var fetch = await context.ExternalFetchResults.Where(result => result.DailyUpdateRunId == update.DailyUpdateRunId && result.SourceKind == "YahooFinanceChartApiV8" && result.InstrumentId == item.Target.InstrumentId)
-                .OrderByDescending(result => result.FetchResultId).FirstOrDefaultAsync(cancellationToken);
-            var fingerprint = fetch?.Status == "Succeeded"
-                ? await repository.GetSourceFingerprintAsync("YahooFinanceChartApiV8", item.Target.InstrumentId, update.Request.EvaluationBarDate, historyStart, cancellationToken)
-                : null;
-            await repository.CompleteFetchCheckpointAsync(item.CheckpointId!.Value, fetch?.Status == "Succeeded" ? "Succeeded" : "Failed", fingerprint,
-                fetch?.Status == "Succeeded" ? update.Request.EvaluationBarDate : null, DateTime.UtcNow, cancellationToken);
-            await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", item.Target.InstrumentId, item.CheckpointId!.Value, cancellationToken);
-            finalizedCount++;
-            if (fetch?.Status == "Succeeded") finalizedSucceededCount++;
-            else if (fetch?.Status == "Failed") finalizedFailedCount++;
-            else finalizedUnknownCount++;
-            if (finalizedCount % 25 == 0 || finalizedCount == chartRequestCount)
-                update.ReportStageProgress($"ステップ 1/11: 株価取得結果を確定保存中（{finalizedCount:n0}/{chartRequestCount:n0}銘柄、取得成功 {finalizedSucceededCount:n0}件、取得失敗 {finalizedFailedCount:n0}件、結果未確認 {finalizedUnknownCount:n0}件）。中止できます。",
-                    finalizedCount, chartRequestCount);
+            var finalized = await repository.FinalizeChartFetchCheckpointsAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, historyStart,
+                batch, DateTime.UtcNow, cancellationToken);
+            foreach (var item in finalized)
+            {
+                finalizedCount++;
+                if (item.FetchStatus == "Succeeded") finalizedSucceededCount++;
+                else if (item.FetchStatus == "Failed") finalizedFailedCount++;
+                else finalizedUnknownCount++;
+            }
+            update.ReportStageProgress($"ステップ 1/11: 株価取得結果を確定保存中（{finalizedCount:n0}/{chartRequestCount:n0}銘柄、取得成功 {finalizedSucceededCount:n0}件、取得失敗 {finalizedFailedCount:n0}件、結果未確認 {finalizedUnknownCount:n0}件）。中止できます。",
+                finalizedCount, chartRequestCount);
         }
         // A backwardation source is intentionally not fabricated. Its absence remains visible rather than becoming a zero-cost assumption,
         // but does not turn the price/technical-analysis core into a false failure.

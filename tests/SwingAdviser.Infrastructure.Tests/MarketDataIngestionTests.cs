@@ -197,6 +197,47 @@ public class MarketDataIngestionTests
     }
 
     [Fact]
+    public async Task FinalizeChartFetchCheckpoints_CompletesAndAttachesABatchWithAuditableFingerprints()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var now = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var evaluation = new DateOnly(2026, 8, 28);
+        var succeeded = new Instrument { FirstObservedAtUtc = now };
+        var failed = new Instrument { FirstObservedAtUtc = now };
+        context.AddRange(succeeded, failed);
+        context.DailyUpdateRuns.Add(new DailyUpdateRun { StartedAtUtc = now, Status = "Running" });
+        await context.SaveChangesAsync();
+        context.DailyBars.Add(new DailyBar
+        {
+            InstrumentId = succeeded.InstrumentId, TradingDate = evaluation, Open = 100m, High = 110m, Low = 90m, Close = 105m, Volume = 1000,
+            Source = "YahooFinanceChartApiV8", FetchedAtUtc = now, Revision = 1, Status = "Final",
+        });
+        await context.SaveChangesAsync();
+
+        var repository = new MarketDataRepository(context);
+        var succeededCheckpoint = await repository.StartFetchCheckpointAsync(1, evaluation, "YahooFinanceChartApiV8", succeeded.InstrumentId, succeeded.InstrumentId.ToString(),
+            evaluation.AddDays(-30), now, TimeSpan.FromHours(1), null, CancellationToken.None);
+        var failedCheckpoint = await repository.StartFetchCheckpointAsync(1, evaluation, "YahooFinanceChartApiV8", failed.InstrumentId, failed.InstrumentId.ToString(),
+            evaluation.AddDays(-30), now, TimeSpan.FromHours(1), null, CancellationToken.None);
+        await repository.RecordFetchResultAsync(1, "YahooFinanceChartApiV8", succeeded.InstrumentId, "Succeeded", null, null, 1, now, CancellationToken.None);
+        await repository.RecordFetchResultAsync(1, "YahooFinanceChartApiV8", failed.InstrumentId, "Failed", "RateLimit", "Too many requests", null, now, CancellationToken.None);
+
+        var finalized = await repository.FinalizeChartFetchCheckpointsAsync(1, evaluation, evaluation.AddDays(-30),
+            [new(succeeded.InstrumentId, succeededCheckpoint.DailyUpdateFetchCheckpointId), new(failed.InstrumentId, failedCheckpoint.DailyUpdateFetchCheckpointId)], now.AddMinutes(1), CancellationToken.None);
+
+        Assert.Equal(new[] { "Succeeded", "Failed" }, finalized.Select(item => item.FetchStatus));
+        var checkpoints = await context.DailyUpdateFetchCheckpoints.OrderBy(item => item.InstrumentId).ToArrayAsync();
+        Assert.Equal("Succeeded", checkpoints.Single(item => item.InstrumentId == succeeded.InstrumentId).Status);
+        Assert.NotNull(checkpoints.Single(item => item.InstrumentId == succeeded.InstrumentId).DataRevisionFingerprint);
+        Assert.Equal("Failed", checkpoints.Single(item => item.InstrumentId == failed.InstrumentId).Status);
+        Assert.Null(checkpoints.Single(item => item.InstrumentId == failed.InstrumentId).DataRevisionFingerprint);
+        var fetches = await context.ExternalFetchResults.OrderBy(item => item.InstrumentId).ToArrayAsync();
+        Assert.Equal(succeededCheckpoint.DailyUpdateFetchCheckpointId, fetches.Single(item => item.InstrumentId == succeeded.InstrumentId).DailyUpdateFetchCheckpointId);
+        Assert.Equal(failedCheckpoint.DailyUpdateFetchCheckpointId, fetches.Single(item => item.InstrumentId == failed.InstrumentId).DailyUpdateFetchCheckpointId);
+    }
+
+    [Fact]
     public async Task RefreshPlanning_UsesShortOverlapForNewEvaluationDateWhenHistoryAlreadyExists()
     {
         using var connection = OpenMigratedConnection();

@@ -69,6 +69,12 @@ public sealed record FetchCheckpointDecision(FetchCheckpointDisposition Disposit
     public bool CanReuse => Disposition == FetchCheckpointDisposition.Reusable;
 }
 
+/// <summary>One fetched chart and the checkpoint that must be finalized with its audited outcome.</summary>
+public sealed record FetchCheckpointFinalizationTarget(int InstrumentId, int CheckpointId);
+
+/// <summary>The persisted outcome of finalizing an individual chart-fetch checkpoint.</summary>
+public sealed record FetchCheckpointFinalization(int InstrumentId, string FetchStatus);
+
 public interface IJpxListedIssuesSource
 {
     Task<ListedInstrumentSourceSnapshot> FetchAsync(CancellationToken cancellationToken);
