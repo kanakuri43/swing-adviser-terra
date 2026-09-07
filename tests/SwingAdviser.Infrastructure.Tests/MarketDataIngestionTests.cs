@@ -291,12 +291,22 @@ public class MarketDataIngestionTests
         Assert.Equal(2, results.Count);
         Assert.Equal(0, results[0].ChartRecordsImported);
         Assert.Equal(1, results[1].ChartRecordsImported);
+        Assert.True(results[0].ChartFailed);
+        Assert.True(results[1].ChartSucceeded);
         Assert.Equal("RateLimit", context.ExternalFetchResults.Single(result => result.InstrumentId == failed.InstrumentId && result.SourceKind == "YahooFinanceChartApiV8").ErrorKind);
         Assert.Single(context.DailyBars);
         Assert.Equal(2, context.FundamentalDataSnapshots.Count());
         Assert.Collection(progress,
-            first => Assert.Equal((1, 2, "BAD"), (first.CompletedCount, first.TotalCount, first.LastCompletedCode)),
-            second => Assert.Equal((2, 2, "7203"), (second.CompletedCount, second.TotalCount, second.LastCompletedCode)));
+            first =>
+            {
+                Assert.Equal((1, 2, "BAD"), (first.CompletedCount, first.TotalCount, first.LastCompletedCode));
+                Assert.Equal((0, 1, 0), (first.SuccessfulCount, first.FailedCount, first.ReusedCount));
+            },
+            second =>
+            {
+                Assert.Equal((2, 2, "7203"), (second.CompletedCount, second.TotalCount, second.LastCompletedCode));
+                Assert.Equal((1, 1, 0), (second.SuccessfulCount, second.FailedCount, second.ReusedCount));
+            });
     }
 
     [Fact]

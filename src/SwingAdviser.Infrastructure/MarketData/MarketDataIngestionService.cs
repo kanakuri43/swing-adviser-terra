@@ -105,6 +105,9 @@ public sealed class MarketDataIngestionService
         var pending = new List<Task<FetchedInstrument>>(_maxConcurrentInstrumentFetches);
         var nextTargetIndex = 0;
         var completedCount = 0;
+        var successfulCount = 0;
+        var failedCount = 0;
+        var reusedCount = 0;
 
         while (nextTargetIndex < targets.Length || pending.Count != 0)
         {
@@ -116,7 +119,8 @@ public sealed class MarketDataIngestionService
                 {
                     results[nextTargetIndex] = new InstrumentRefreshResult(target.InstrumentId, 0, 0);
                     completedCount++;
-                    progress?.Report(new InstrumentRefreshProgress(completedCount, targets.Length, target.Code, UsedCachedChart: true));
+                    reusedCount++;
+                    progress?.Report(new InstrumentRefreshProgress(completedCount, targets.Length, target.Code, UsedCachedChart: true, successfulCount, failedCount, reusedCount));
                     nextTargetIndex++;
                     continue;
                 }
@@ -130,9 +134,12 @@ public sealed class MarketDataIngestionService
             var completedFetch = await Task.WhenAny(pending);
             pending.Remove(completedFetch);
             var fetched = await completedFetch;
-            results[fetched.TargetIndex] = await PersistInstrumentAsync(dailyUpdateRunId, fetched, cancellationToken);
+            var result = await PersistInstrumentAsync(dailyUpdateRunId, fetched, cancellationToken);
+            results[fetched.TargetIndex] = result;
             completedCount++;
-            progress?.Report(new InstrumentRefreshProgress(completedCount, targets.Length, fetched.Target.Code));
+            if (result.ChartSucceeded) successfulCount++;
+            if (result.ChartFailed) failedCount++;
+            progress?.Report(new InstrumentRefreshProgress(completedCount, targets.Length, fetched.Target.Code, false, successfulCount, failedCount, reusedCount));
         }
 
         return results;
@@ -160,12 +167,15 @@ public sealed class MarketDataIngestionService
     private async Task<InstrumentRefreshResult> PersistInstrumentAsync(int? dailyUpdateRunId, FetchedInstrument fetched, CancellationToken cancellationToken)
     {
         var chartRecords = 0;
+        var chartSucceeded = false;
+        var chartFailed = false;
         if (fetched.Chart?.Value is not null)
         {
             try
             {
                 chartRecords = await _repository.ImportYahooChartAsync(fetched.Target.InstrumentId, fetched.Chart.Value, fetched.Chart.AttemptedAtUtc, cancellationToken);
                 await SucceedAsync(dailyUpdateRunId, "YahooFinanceChartApiV8", fetched.Target.InstrumentId, fetched.Chart.Value.DailyBars.Count + fetched.Chart.Value.CorporateActions.Count, fetched.Chart.AttemptedAtUtc, cancellationToken);
+                chartSucceeded = true;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -175,11 +185,13 @@ public sealed class MarketDataIngestionService
             catch (Exception exception)
             {
                 await FailAsync(dailyUpdateRunId, "YahooFinanceChartApiV8", fetched.Target.InstrumentId, Classify(exception), SafeMessage(exception));
+                chartFailed = true;
             }
         }
         else if (fetched.Chart is not null)
         {
             await FailAsync(dailyUpdateRunId, "YahooFinanceChartApiV8", fetched.Target.InstrumentId, Classify(fetched.Chart.Error!), SafeMessage(fetched.Chart.Error!));
+            chartFailed = true;
         }
 
         var fundamentalRecords = 0;
@@ -206,7 +218,7 @@ public sealed class MarketDataIngestionService
             await FailAsync(dailyUpdateRunId, "YahooFinanceQuoteApiV7", fetched.Target.InstrumentId, Classify(fetched.Fundamental.Error!), SafeMessage(fetched.Fundamental.Error!));
         }
 
-        return new InstrumentRefreshResult(fetched.Target.InstrumentId, chartRecords, fundamentalRecords);
+        return new InstrumentRefreshResult(fetched.Target.InstrumentId, chartRecords, fundamentalRecords, chartSucceeded, chartFailed);
     }
 
     private async Task<FetchAttempt<T>> FetchAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken) where T : class
@@ -261,6 +273,13 @@ internal sealed record FetchAttempt<T>(T? Value, Exception? Error, DateTime Atte
 internal sealed record FetchedInstrument(int TargetIndex, InstrumentRefreshTarget Target, FetchAttempt<YahooChartSourceSnapshot>? Chart, FetchAttempt<FundamentalDataSourceRecord>? Fundamental);
 
 /// <summary>Visible count for a long-running universe refresh. It is informational and never changes analysis outcomes.</summary>
-public sealed record InstrumentRefreshProgress(int CompletedCount, int TotalCount, string LastCompletedCode, bool UsedCachedChart = false);
+public sealed record InstrumentRefreshProgress(
+    int CompletedCount,
+    int TotalCount,
+    string LastCompletedCode,
+    bool UsedCachedChart = false,
+    int SuccessfulCount = 0,
+    int FailedCount = 0,
+    int ReusedCount = 0);
 
-public sealed record InstrumentRefreshResult(int InstrumentId, int ChartRecordsImported, int FundamentalSnapshotsAdded);
+public sealed record InstrumentRefreshResult(int InstrumentId, int ChartRecordsImported, int FundamentalSnapshotsAdded, bool ChartSucceeded = false, bool ChartFailed = false);

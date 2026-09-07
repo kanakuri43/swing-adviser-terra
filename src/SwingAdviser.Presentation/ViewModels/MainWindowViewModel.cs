@@ -117,7 +117,7 @@ public sealed class MainWindowViewModel : ObservableObject
             ? Math.Clamp((double)(progress.CompletedWorkItems ?? 0) / progress.TotalWorkItems.Value, 0, 1)
             : 0;
         var currentWork = progress.TotalWorkItems is > 0
-            ? $"  ・  銘柄 {(progress.CompletedWorkItems ?? 0):n0} / {progress.TotalWorkItems.Value:n0}"
+            ? $"  ・  現在の処理 {(progress.CompletedWorkItems ?? 0):n0} / {progress.TotalWorkItems.Value:n0}"
             : string.Empty;
         DailyUpdateProgress = new UpdateProgressRow("実行中", 100d * (progress.CompletedSteps + workFraction) / progress.TotalSteps, progress.TotalWorkItems is not > 0,
             $"{progress.CompletedSteps} / {progress.TotalSteps} ステップ{currentWork}  ・  成功 {progress.SucceededCount}件  ・  失敗 {progress.FailedCount}件", _dailyUpdateDetailBeforeHeartbeat);
