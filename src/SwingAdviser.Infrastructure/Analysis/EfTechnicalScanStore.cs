@@ -47,33 +47,151 @@ public sealed class EfTechnicalScanStore : ITechnicalScanStore
 
     public async Task<PointInTimeAnalysisSeries> BuildSeriesAsync(int instrumentId, DateOnly date, DateTime analyzedAtUtc, int required, CancellationToken cancellationToken)
     {
+        var series = await BuildSeriesBatchAsync([instrumentId], date, analyzedAtUtc, required, cancellationToken);
+        return series.Single();
+    }
+
+    public async Task<IReadOnlyList<PointInTimeAnalysisSeries>> BuildSeriesBatchAsync(IReadOnlyList<int> instrumentIds, DateOnly date, DateTime analyzedAtUtc, int required, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(instrumentIds);
+        var ids = instrumentIds.Distinct().ToArray();
+        if (ids.Length == 0) return Array.Empty<PointInTimeAnalysisSeries>();
         var historyStart = TechnicalHistoryWindow.GetStart(date, required, _historyLookbackYears);
-        var allBars = await _context.DailyBars.Where(item => item.InstrumentId == instrumentId && item.TradingDate >= historyStart && item.TradingDate <= date && item.FetchedAtUtc <= analyzedAtUtc).ToListAsync(cancellationToken);
-        var bars = allBars.GroupBy(item => item.TradingDate).Select(group => group.OrderByDescending(item => item.Revision).First()).OrderBy(item => item.TradingDate).ToArray();
-        var actions = (await _context.CorporateActions.Where(item => item.InstrumentId == instrumentId && item.EffectiveDate >= historyStart && item.EffectiveDate <= date && item.AvailableAtUtc <= analyzedAtUtc).ToListAsync(cancellationToken))
-            .GroupBy(item => item.SourceEventId).Select(group => group.OrderByDescending(item => item.Revision).First()).OrderBy(item => item.EffectiveDate).ThenBy(item => item.SourceEventId, StringComparer.Ordinal).ToArray();
-        var status = DetermineStatus(bars, actions, date, required);
-        var adjusted = status == "Ok" ? Adjust(bars, actions, date, out status) : Array.Empty<AdjustedDailyBar>();
-        var priceHash = Hash(string.Join("\n", bars.Select(item => $"{item.TradingDate:yyyy-MM-dd}|{item.DailyBarId}")));
-        var actionHash = Hash(string.Join("\n", actions.Select(item => $"{item.EffectiveDate:yyyy-MM-dd}|{item.SourceEventId}|{item.CorporateActionId}")));
-        var first = bars.FirstOrDefault()?.TradingDate ?? date; var last = bars.LastOrDefault()?.TradingDate ?? date;
-        var manifestHash = Hash(JsonSerializer.Serialize(new { schema = "analysis-input-manifest-v2", instrumentId, date, analyzedAtUtc, historyStart, first, last, count = bars.Length, priceHash, actionHash, selection = "pit-revision-finite-window-v2" }));
-        var manifest = await _context.AnalysisInputManifests.SingleOrDefaultAsync(item => item.InstrumentId == instrumentId && item.EvaluationBarDate == date && item.AnalyzedAtUtc == analyzedAtUtc && item.ManifestHash == manifestHash, cancellationToken);
-        if (manifest is null)
+        var allBars = await _context.DailyBars.AsNoTracking()
+            .Where(item => ids.Contains(item.InstrumentId) && item.TradingDate >= historyStart && item.TradingDate <= date && item.FetchedAtUtc <= analyzedAtUtc)
+            .ToListAsync(cancellationToken);
+        var allActions = await _context.CorporateActions.AsNoTracking()
+            .Where(item => ids.Contains(item.InstrumentId) && item.EffectiveDate >= historyStart && item.EffectiveDate <= date && item.AvailableAtUtc <= analyzedAtUtc)
+            .ToListAsync(cancellationToken);
+        var prepared = ids.Select(instrumentId => PrepareSeries(
+            instrumentId,
+            date,
+            required,
+            historyStart,
+            allBars.Where(item => item.InstrumentId == instrumentId).GroupBy(item => item.TradingDate).Select(group => group.OrderByDescending(item => item.Revision).First()).OrderBy(item => item.TradingDate).ToArray(),
+            allActions.Where(item => item.InstrumentId == instrumentId).GroupBy(item => item.SourceEventId).Select(group => group.OrderByDescending(item => item.Revision).First()).OrderBy(item => item.EffectiveDate).ThenBy(item => item.SourceEventId, StringComparer.Ordinal).ToArray()))
+            .ToArray();
+
+        var existing = await _context.AnalysisInputManifests.AsNoTracking()
+            .Where(item => ids.Contains(item.InstrumentId) && item.EvaluationBarDate == date)
+            .OrderByDescending(item => item.AnalyzedAtUtc).ThenByDescending(item => item.ManifestId)
+            .ToListAsync(cancellationToken);
+        var manifests = existing
+            .GroupBy(item => (item.InstrumentId, item.ManifestHash))
+            .ToDictionary(group => group.Key, group => group.First());
+        var missing = prepared.Where(item => !manifests.ContainsKey((item.InstrumentId, item.ManifestHash))).ToArray();
+        if (missing.Length != 0)
         {
-            manifest = new AnalysisInputManifest { InstrumentId = instrumentId, EvaluationBarDate = date, AnalyzedAtUtc = analyzedAtUtc, FirstBarDate = first, LastBarDate = last, BarCount = bars.Length, PriceRevisionSetHash = priceHash, CorporateActionSetHash = actionHash, ManifestHash = manifestHash, CreatedAtUtc = analyzedAtUtc };
-            _context.AnalysisInputManifests.Add(manifest); await _context.SaveChangesAsync(cancellationToken);
-            _context.AddRange(bars.Select(item => new AnalysisInputManifestBar { ManifestId = manifest.ManifestId, TradingDate = item.TradingDate, DailyBarId = item.DailyBarId }));
-            _context.AddRange(actions.Select(item => new AnalysisInputManifestCorporateAction { ManifestId = manifest.ManifestId, CorporateActionId = item.CorporateActionId }));
-            await _context.SaveChangesAsync(cancellationToken);
+            await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                var newManifests = missing.Select(item => new AnalysisInputManifest { InstrumentId = item.InstrumentId, EvaluationBarDate = date, AnalyzedAtUtc = analyzedAtUtc, FirstBarDate = item.FirstBarDate, LastBarDate = item.LastBarDate, BarCount = item.Bars.Length, PriceRevisionSetHash = item.PriceHash, CorporateActionSetHash = item.ActionHash, ManifestHash = item.ManifestHash, CreatedAtUtc = analyzedAtUtc }).ToArray();
+                _context.AnalysisInputManifests.AddRange(newManifests);
+                await _context.SaveChangesAsync(cancellationToken);
+                foreach (var manifest in newManifests) manifests[(manifest.InstrumentId, manifest.ManifestHash)] = manifest;
+                _context.AddRange(missing.SelectMany(item => item.Bars.Select(bar => new AnalysisInputManifestBar { ManifestId = manifests[(item.InstrumentId, item.ManifestHash)].ManifestId, TradingDate = bar.TradingDate, DailyBarId = bar.DailyBarId })));
+                _context.AddRange(missing.SelectMany(item => item.Actions.Select(action => new AnalysisInputManifestCorporateAction { ManifestId = manifests[(item.InstrumentId, item.ManifestHash)].ManifestId, CorporateActionId = action.CorporateActionId })));
+                await _context.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                _context.ChangeTracker.Clear();
+                throw;
+            }
         }
-        return new PointInTimeAnalysisSeries(manifest.ManifestId, instrumentId, date, analyzedAtUtc, manifestHash, priceHash, actionHash, adjusted, status, required);
+        try
+        {
+            return prepared.Select(item => new PointInTimeAnalysisSeries(manifests[(item.InstrumentId, item.ManifestHash)].ManifestId, item.InstrumentId, date, analyzedAtUtc, item.ManifestHash, item.PriceHash, item.ActionHash, item.AdjustedBars, item.Status, required)).ToArray();
+        }
+        finally
+        {
+            _context.ChangeTracker.Clear();
+        }
     }
 
     public async Task<int> SaveIndicatorAsync(int scanRunId, int snapshotId, PointInTimeAnalysisSeries series, IndicatorComputation value, CancellationToken cancellationToken)
     {
-        var entity = new IndicatorResult { ScanRunId = scanRunId, InstrumentId = series.InstrumentId, EvaluationBarDate = series.EvaluationBarDate, AnalyzedAtUtc = series.AnalyzedAtUtc, ManifestId = series.ManifestId, StrategyParameterSnapshotId = snapshotId, DataStatus = value.DataStatus, HistoryAvailableCount = value.HistoryAvailableCount, HistoryRequiredCount = value.HistoryRequiredCount, MacdLine = value.MacdLine, MacdSignal = value.MacdSignal, MacdHistogram = value.MacdHistogram, Ema20 = value.Ema20, Ema50 = value.Ema50, Ema200 = value.Ema200, Atr14 = value.Atr14, VolumeRatio = value.VolumeRatio, VolumeReferenceAverage = value.VolumeReferenceAverage, VolumeRatioStatus = value.VolumeRatioStatus, RawValuesJson = value.RawValuesJson, CreatedAtUtc = series.AnalyzedAtUtc };
+        var entity = CreateIndicatorResult(scanRunId, snapshotId, series, value);
         _context.IndicatorResults.Add(entity); await _context.SaveChangesAsync(cancellationToken); return entity.IndicatorResultId;
+    }
+
+    public async Task<ReusableTechnicalScanResult?> FindReusableResultAsync(string manifestHash, int strategySnapshotId, CancellationToken cancellationToken)
+    {
+        var result = await _context.IndicatorResults.AsNoTracking()
+            .Include(item => item.CandidateResults)
+            .Where(item => item.Manifest.ManifestHash == manifestHash && item.StrategyParameterSnapshotId == strategySnapshotId
+                && (item.ScanRun.Status == "Succeeded" || item.ScanRun.Status == "PartiallySucceeded"))
+            .OrderByDescending(item => item.CreatedAtUtc).ThenByDescending(item => item.IndicatorResultId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (result is null) return null;
+        if (result.DataStatus != "Ok")
+        {
+            return new ReusableTechnicalScanResult(result.IndicatorResultId, result.DataStatus, result.HistoryAvailableCount, result.HistoryRequiredCount, 0);
+        }
+
+        var candidates = result.CandidateResults;
+        if (candidates.Count != 2
+            || candidates.Any(candidate => candidate.CandidateScoringEngineVersion != TechnicalStrategyParameters.CandidateEngineVersion)
+            || candidates.Select(candidate => candidate.Direction).Distinct(StringComparer.Ordinal).Count() != 2
+            || !candidates.Any(candidate => candidate.Direction == "Long")
+            || !candidates.Any(candidate => candidate.Direction == "Short"))
+        {
+            return null;
+        }
+        return new ReusableTechnicalScanResult(result.IndicatorResultId, result.DataStatus, result.HistoryAvailableCount, result.HistoryRequiredCount, candidates.Count(candidate => candidate.Matched));
+    }
+
+    public async Task SaveBatchAsync(int scanRunId, int strategySnapshotId, IReadOnlyList<TechnicalScanPersistenceItem> items, DateTime createdAtUtc, CancellationToken cancellationToken)
+    {
+        if (items.Count == 0) return;
+        try
+        {
+            foreach (var item in items)
+            {
+                switch (item)
+                {
+                    case ComputedTechnicalScanPersistenceItem computed:
+                    {
+                        var indicator = CreateIndicatorResult(scanRunId, strategySnapshotId, computed.Series, computed.Indicator);
+                        _context.IndicatorResults.Add(indicator);
+                        _context.ScanRunResultUses.Add(new ScanRunResultUse { ScanRunId = scanRunId, IndicatorResult = indicator, UseKind = "Computed", UsedAtUtc = createdAtUtc });
+                        if (computed.Indicator.DataStatus == "Ok")
+                        {
+                            foreach (var candidate in computed.Candidates)
+                            {
+                                indicator.CandidateResults.Add(CreateCandidateResult(item.InstrumentId, candidate, createdAtUtc));
+                            }
+                        }
+                        else
+                        {
+                            AddExclusion(scanRunId, item.InstrumentId, computed.Indicator.DataStatus, computed.Indicator.HistoryAvailableCount, computed.Indicator.HistoryRequiredCount);
+                        }
+                        break;
+                    }
+                    case ReusedTechnicalScanPersistenceItem reused:
+                        _context.ScanRunResultUses.Add(new ScanRunResultUse { ScanRunId = scanRunId, IndicatorResultId = reused.Result.IndicatorResultId, UseKind = "Reused", UsedAtUtc = createdAtUtc });
+                        if (reused.Result.DataStatus != "Ok")
+                        {
+                            AddExclusion(scanRunId, item.InstrumentId, reused.Result.DataStatus, reused.Result.HistoryAvailableCount, reused.Result.HistoryRequiredCount);
+                        }
+                        break;
+                    case FailedTechnicalScanPersistenceItem failed:
+                        AddExclusion(scanRunId, item.InstrumentId, failed.Reason, failed.HistoryAvailableCount, failed.HistoryRequiredCount);
+                        break;
+                    default:
+                        throw new InvalidOperationException($"Unsupported scan persistence item: {item.GetType().Name}.");
+                }
+            }
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        finally
+        {
+            // A batch may contain full analysis manifests through navigation fix-up. Do not retain
+            // them for the next batch, or long scans grow progressively slower.
+            _context.ChangeTracker.Clear();
+        }
     }
     public async Task SaveCandidatesAsync(int indicatorId, int instrumentId, IReadOnlyList<CandidateEvaluation> candidates, DateTime createdAtUtc, CancellationToken cancellationToken)
     {
@@ -101,6 +219,57 @@ public sealed class EfTechnicalScanStore : ITechnicalScanStore
             _context.ChangeTracker.Clear();
         }
     }
+
+    private void AddExclusion(int scanRunId, int instrumentId, string reason, int available, int required) =>
+        _context.ScanExclusions.Add(new ScanExclusion { ScanRunId = scanRunId, InstrumentId = instrumentId, Reason = reason, HistoryAvailableCount = available, HistoryRequiredCount = required });
+
+    private static IndicatorResult CreateIndicatorResult(int scanRunId, int snapshotId, PointInTimeAnalysisSeries series, IndicatorComputation value) =>
+        new()
+        {
+            ScanRunId = scanRunId, InstrumentId = series.InstrumentId, EvaluationBarDate = series.EvaluationBarDate, AnalyzedAtUtc = series.AnalyzedAtUtc,
+            ManifestId = series.ManifestId, StrategyParameterSnapshotId = snapshotId, DataStatus = value.DataStatus,
+            HistoryAvailableCount = value.HistoryAvailableCount, HistoryRequiredCount = value.HistoryRequiredCount,
+            MacdLine = value.MacdLine, MacdSignal = value.MacdSignal, MacdHistogram = value.MacdHistogram,
+            Ema20 = value.Ema20, Ema50 = value.Ema50, Ema200 = value.Ema200, Atr14 = value.Atr14,
+            VolumeRatio = value.VolumeRatio, VolumeReferenceAverage = value.VolumeReferenceAverage,
+            VolumeRatioStatus = value.VolumeRatioStatus, RawValuesJson = value.RawValuesJson, CreatedAtUtc = series.AnalyzedAtUtc
+        };
+
+    private static CandidateResult CreateCandidateResult(int instrumentId, CandidateEvaluation value, DateTime createdAtUtc) =>
+        new()
+        {
+            InstrumentId = instrumentId, Direction = value.Direction, SignalPurpose = "Entry", Matched = value.Matched,
+            Score = value.Score, ConfidenceLabel = value.ConfidenceLabel,
+            CandidateScoringEngineVersion = TechnicalStrategyParameters.CandidateEngineVersion,
+            ScoreComponentsJson = value.ComponentsJson, CreatedAtUtc = createdAtUtc
+        };
+
+    private static PreparedAnalysisSeries PrepareSeries(int instrumentId, DateOnly date, int required, DateOnly historyStart, DailyBar[] bars, CorporateAction[] actions)
+    {
+        var status = DetermineStatus(bars, actions, date, required);
+        var adjusted = status == "Ok" ? Adjust(bars, actions, date, out status) : Array.Empty<AdjustedDailyBar>();
+        var priceHash = Hash(string.Join("\n", bars.Select(item => $"{item.TradingDate:yyyy-MM-dd}|{item.DailyBarId}")));
+        var actionHash = Hash(string.Join("\n", actions.Select(item => $"{item.EffectiveDate:yyyy-MM-dd}|{item.SourceEventId}|{item.CorporateActionId}")));
+        var first = bars.FirstOrDefault()?.TradingDate ?? date;
+        var last = bars.LastOrDefault()?.TradingDate ?? date;
+        // `analyzedAtUtc` determines which revisions were eligible, but is not an input
+        // revision. An identical selected set can use the same frozen manifest later.
+        var manifestHash = Hash(JsonSerializer.Serialize(new { schema = "analysis-input-manifest-v2", instrumentId, date, historyStart, first, last, count = bars.Length, priceHash, actionHash, selection = "pit-revision-finite-window-v2" }));
+        return new PreparedAnalysisSeries(instrumentId, bars, actions, first, last, status, adjusted, priceHash, actionHash, manifestHash);
+    }
+
+    private sealed record PreparedAnalysisSeries(
+        int InstrumentId,
+        DailyBar[] Bars,
+        CorporateAction[] Actions,
+        DateOnly FirstBarDate,
+        DateOnly LastBarDate,
+        string Status,
+        AdjustedDailyBar[] AdjustedBars,
+        string PriceHash,
+        string ActionHash,
+        string ManifestHash);
+
     public async Task CompleteScanRunAsync(int runId, string status, int succeeded, int failed, DateTime completed, CancellationToken cancellationToken)
     {
         var entity = await _context.ScanRuns.SingleAsync(item => item.ScanRunId == runId, cancellationToken); entity.Status = status; entity.SucceededCount = succeeded; entity.FailedCount = failed; entity.CompletedAtUtc = completed; await _context.SaveChangesAsync(cancellationToken);

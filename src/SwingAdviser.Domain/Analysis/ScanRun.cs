@@ -16,5 +16,6 @@ public sealed class ScanRun
 
     public DailyUpdateRun? DailyUpdateRun { get; set; }
     public ICollection<IndicatorResult> IndicatorResults { get; } = new List<IndicatorResult>();
+    public ICollection<ScanRunResultUse> ResultUses { get; } = new List<ScanRunResultUse>();
     public ICollection<ScanExclusion> ScanExclusions { get; } = new List<ScanExclusion>();
 }

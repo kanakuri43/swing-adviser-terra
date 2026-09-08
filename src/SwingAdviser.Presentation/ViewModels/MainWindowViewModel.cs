@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 
 namespace SwingAdviser.Presentation.ViewModels;
 
@@ -13,7 +14,7 @@ public sealed class MainWindowViewModel : ObservableObject
         "分析結果は参考情報です。注文・自動売買は行いません。約定は証券会社の通知を確認し、利用者が入力・確認した内容だけを保存します。";
 
     private string _statusMessage = "実データを読み込んでいます。日次分析更新は利用者が明示的に開始します。";
-    private UpdateProgressRow _dailyUpdateProgress = new("未実行", 0, false, "日次分析更新はまだ実行されていません。", "更新すると、外部データ取得・分析・候補生成・保有再評価を実行します。");
+    private DailyUpdateProgressRow _dailyUpdateProgress = DailyUpdateProgressRow.NotStarted;
     private UpdateProgressRow _aiQueueProgress = new("未実行", 0, false, "AIチェックはまだありません。", "AIチェックは日次分析の完了を待たず、設定で有効な場合だけ自動投入します。");
     private bool _isUpdateRunning;
     private bool _isDisplayLoading;
@@ -21,7 +22,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private string _dailyUpdateDetailBeforeHeartbeat = "日次分析更新はまだ実行されていません。";
 
     public string StatusMessage { get => _statusMessage; private set => Set(ref _statusMessage, value); }
-    public UpdateProgressRow DailyUpdateProgress { get => _dailyUpdateProgress; private set => Set(ref _dailyUpdateProgress, value); }
+    public DailyUpdateProgressRow DailyUpdateProgress { get => _dailyUpdateProgress; private set => Set(ref _dailyUpdateProgress, value); }
     public UpdateProgressRow AiQueueProgress { get => _aiQueueProgress; private set => Set(ref _aiQueueProgress, value); }
     public bool IsUpdateRunning { get => _isUpdateRunning; private set => Set(ref _isUpdateRunning, value); }
     public bool IsDisplayLoading { get => _isDisplayLoading; private set => Set(ref _isDisplayLoading, value); }
@@ -56,12 +57,17 @@ public sealed class MainWindowViewModel : ObservableObject
     public async Task ReloadAiChecksAsync(SwingAdviser.Application.Analysis.IAiCheckOverviewReader reader)
     {
         var overview = await reader.GetOverviewAsync();
+        // The five-second AI-status poll rebuilds these immutable rows. Preserve the logical
+        // selection before clearing the collection so the details pane does not disappear while
+        // a selected candidate moves from queued to running/completed.
+        var selectedCandidateResultId = SelectedCandidate?.CandidateResultId;
         Candidates.Clear();
         foreach (var candidate in overview.Candidates)
         {
-            var priceDetail = candidate.LatestClose is null ? "最新確定終値は未取得です。" : $"最新確定終値 {candidate.LatestClose:n4}円（{candidate.LatestBarDate:yyyy-MM-dd}）。";
-            Candidates.Add(new CandidateRow(candidate.Code, candidate.Name, candidate.Direction, "Entry", candidate.EvaluationBarDate.ToString("yyyy-MM-dd"), "保存済み戦略", candidate.Score?.ToString() ?? "未算定", candidate.Confidence ?? "未算定", "保存済みのテクニカル候補。" + priceDetail + " AI結果は参考情報です。", candidate.AiStatus, candidate.CandidateResultId, candidate.LatestAttemptId, candidate.Verdict, candidate.VerdictAlignment, candidate.Summary, candidate.LatestClose is null ? "未取得" : $"{Math.Round(candidate.LatestClose.Value, 0, MidpointRounding.AwayFromZero):n0}円"));
+            Candidates.Add(new CandidateRow(candidate.Code, candidate.Name, candidate.Direction, "Entry", candidate.EvaluationBarDate.ToString("yyyy-MM-dd"), "保存済み戦略", candidate.Score?.ToString() ?? "未算定", candidate.Confidence ?? "未算定", BuildPrimaryReason(candidate), candidate.AiStatus, candidate.CandidateResultId, candidate.LatestAttemptId, candidate.Verdict, candidate.VerdictAlignment, candidate.Summary, candidate.LatestClose is null ? "未取得" : $"{Math.Round(candidate.LatestClose.Value, 0, MidpointRounding.AwayFromZero):n0}円"));
         }
+        if (selectedCandidateResultId.HasValue)
+            SelectedCandidate = Candidates.FirstOrDefault(candidate => candidate.CandidateResultId == selectedCandidateResultId.Value);
         var total = overview.QueuedCount + overview.RunningCount + overview.SucceededCount + overview.FailedCount + overview.TimedOutCount + overview.InsufficientInformationCount + overview.CancelledCount;
         var active = overview.QueuedCount + overview.RunningCount;
         AiQueueProgress = new UpdateProgressRow(active > 0 ? "継続中" : total > 0 ? "完了" : "未実行", total == 0 ? 0 : 100d * (total - active) / total, active > 0,
@@ -75,7 +81,17 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         var overview = await reader.GetLatestAsync();
         var percent = overview.TotalSteps == 0 ? 0 : 100d * overview.CompletedSteps / overview.TotalSteps;
-        DailyUpdateProgress = new UpdateProgressRow(overview.Status, percent, overview.Status == "実行中", $"{overview.CompletedSteps} / {overview.TotalSteps} ステップ  ・  成功 {overview.SucceededCount}件  ・  失敗 {overview.FailedCount}件", overview.Detail);
+        DailyUpdateProgress = new DailyUpdateProgressRow(
+            overview.Status,
+            percent,
+            $"完了 {overview.CompletedSteps:n0} / {overview.TotalSteps:n0} 工程  ・  成功 {overview.SucceededCount:n0}件  ・  失敗 {overview.FailedCount:n0}件",
+            overview.TotalSteps,
+            null,
+            null,
+            0,
+            false,
+            overview.Status == "実行中" ? "現在の工程は保存済みの情報から特定できません。" : "実行中の工程はありません。",
+            overview.Detail);
     }
 
     public void BeginDisplayReload(string operation)
@@ -97,7 +113,6 @@ public sealed class MainWindowViewModel : ObservableObject
         DailyUpdateProgress = DailyUpdateProgress with
         {
             Status = "前回中断",
-            IsIndeterminate = false,
             Detail = $"前回のアプリ終了により更新は中断されました。{DailyUpdateProgress.Detail} 新しい日次分析更新は安全に開始できます。",
         };
     }
@@ -106,8 +121,18 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         IsUpdateRunning = true;
         StatusMessage = "日次分析更新を開始しました。完了後、候補・保有・AI状態を実データから再読込します。";
-        _dailyUpdateDetailBeforeHeartbeat = "ステップ 1/11: 外部データを更新する準備をしています。中止できます。";
-        DailyUpdateProgress = new UpdateProgressRow("実行中", 0, true, "0 / 11 ステップ  ・  成功 0件  ・  失敗 0件", _dailyUpdateDetailBeforeHeartbeat);
+        _dailyUpdateDetailBeforeHeartbeat = "外部データを更新する準備をしています。中止できます。";
+        DailyUpdateProgress = new DailyUpdateProgressRow(
+            "実行中",
+            0,
+            "完了 0 / 11 工程  ・  成功 0件  ・  失敗 0件",
+            11,
+            1,
+            DisplayStepName(SwingAdviser.Application.DailyUpdates.DailyUpdateStep.RefreshMarketData),
+            0,
+            true,
+            "開始準備中",
+            _dailyUpdateDetailBeforeHeartbeat);
     }
 
     public void ReportDailyUpdate(SwingAdviser.Application.DailyUpdates.DailyUpdateStepProgress progress)
@@ -116,11 +141,24 @@ public sealed class MainWindowViewModel : ObservableObject
         var workFraction = progress.TotalWorkItems is > 0
             ? Math.Clamp((double)(progress.CompletedWorkItems ?? 0) / progress.TotalWorkItems.Value, 0, 1)
             : 0;
+        var isStageComplete = progress.Status is "Succeeded" or "Failed";
         var currentWork = progress.TotalWorkItems is > 0
-            ? $"  ・  現在の処理 {(progress.CompletedWorkItems ?? 0):n0} / {progress.TotalWorkItems.Value:n0}"
-            : string.Empty;
-        DailyUpdateProgress = new UpdateProgressRow("実行中", 100d * (progress.CompletedSteps + workFraction) / progress.TotalSteps, progress.TotalWorkItems is not > 0,
-            $"{progress.CompletedSteps} / {progress.TotalSteps} ステップ{currentWork}  ・  成功 {progress.SucceededCount}件  ・  失敗 {progress.FailedCount}件", _dailyUpdateDetailBeforeHeartbeat);
+            ? $"{(progress.CompletedWorkItems ?? 0):n0} / {progress.TotalWorkItems.Value:n0} 件"
+            : isStageComplete ? "完了" : "処理の準備中";
+        var overallPercent = progress.TotalSteps == 0
+            ? 0
+            : 100d * (progress.CompletedSteps + (isStageComplete ? 0 : workFraction)) / progress.TotalSteps;
+        DailyUpdateProgress = new DailyUpdateProgressRow(
+            "実行中",
+            overallPercent,
+            $"完了 {progress.CompletedSteps:n0} / {progress.TotalSteps:n0} 工程  ・  成功 {progress.SucceededCount:n0}件  ・  失敗 {progress.FailedCount:n0}件",
+            progress.TotalSteps,
+            (int)progress.Step,
+            DisplayStepName(progress.Step),
+            isStageComplete ? 100 : 100 * workFraction,
+            !isStageComplete && progress.TotalWorkItems is not > 0,
+            currentWork,
+            _dailyUpdateDetailBeforeHeartbeat);
     }
 
     public void ReportDailyUpdateHeartbeat(TimeSpan elapsed)
@@ -145,6 +183,55 @@ public sealed class MainWindowViewModel : ObservableObject
     }
 
     private static string Amount(decimal? value) => value is null ? "未算定" : $"{value.Value:n4}円";
+
+    private static string BuildPrimaryReason(SwingAdviser.Application.Analysis.AiCandidateOverview candidate)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(candidate.ScoreComponentsJson);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return "保存済みの候補スコアはありますが、判定詳細を読み取れません。";
+            var state = ReadString(root, "state") == "Fresh" ? "新規に条件成立" : "条件を継続";
+            var macdGap = ReadDecimal(root, "macdGap");
+            var emaGap = ReadDecimal(root, "emaGap");
+            var volumeRatio = ReadDecimal(root, "volumeRatio");
+            var atr = ReadDecimal(root, "atr");
+            if (macdGap is null || emaGap is null || volumeRatio is null || atr is null)
+                return "保存済みの候補スコアはありますが、指標別の判定詳細は未保存です。";
+            var macdOrder = candidate.Direction == "Long" ? "MACDがシグナルより上" : "MACDがシグナルより下";
+            var emaOrder = candidate.Direction == "Long" ? "EMA20 ＞ EMA50 ＞ EMA200" : "EMA20 ＜ EMA50 ＜ EMA200";
+            return $"{state}。{macdOrder}（優位幅 {Number(macdGap)}）、{emaOrder}（最小差 {Number(emaGap)}）、出来高 {Number(volumeRatio)}倍、ATR {Number(atr)}。";
+        }
+        catch (JsonException)
+        {
+            return "保存済みの候補スコアはありますが、判定詳細を読み取れません。候補詳細とAIチェックは参考情報です。";
+        }
+    }
+
+    private static string? ReadString(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static decimal? ReadDecimal(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var value) && value.TryGetDecimal(out var result) ? result : null;
+
+    private static string Number(decimal? value) => value?.ToString("n2") ?? "未取得";
+
+    private static string DisplayStepName(SwingAdviser.Application.DailyUpdates.DailyUpdateStep step) => step switch
+    {
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.RefreshMarketData => "外部データを更新",
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.VerifyDataAvailability => "データ利用可否を確認",
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.ApplyCorporateActionAdjustments => "企業アクションを反映",
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.BuildPointInTimeSeries => "時点整合データを準備",
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.RunTechnicalAnalysis => "テクニカル分析を実行",
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.ExtractLongCandidates => "Long候補を抽出",
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.ExtractShortCandidates => "Short候補を抽出",
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.ReevaluateHoldings => "保有を再評価",
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.PersistAnalysisResults => "分析結果を保存",
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.PublishResults => "結果を公開",
+        SwingAdviser.Application.DailyUpdates.DailyUpdateStep.EnqueueAiChecks => "AIチェックをキューへ投入",
+        _ => step.ToString(),
+    };
 }
 
 public sealed record CandidateRow(
@@ -205,6 +292,36 @@ public sealed record UpdateProgressRow(
     bool IsIndeterminate,
     string Summary,
     string Detail);
+
+/// <summary>Separates completed workflow progress from work inside the current workflow step.</summary>
+public sealed record DailyUpdateProgressRow(
+    string Status,
+    double OverallProgressPercent,
+    string OverallSummary,
+    int TotalSteps,
+    int? CurrentStepNumber,
+    string? CurrentStepName,
+    double CurrentStepProgressPercent,
+    bool IsCurrentStepIndeterminate,
+    string CurrentWorkSummary,
+    string Detail)
+{
+    public static DailyUpdateProgressRow NotStarted { get; } = new(
+        "未実行",
+        0,
+        "完了 0 / 11 工程  ・  成功 0件  ・  失敗 0件",
+        11,
+        null,
+        null,
+        0,
+        false,
+        "実行中の工程はありません。",
+        "更新すると、外部データ取得・分析・候補生成・保有再評価を実行します。");
+
+    public string CurrentStepSummary => CurrentStepNumber is null || string.IsNullOrWhiteSpace(CurrentStepName)
+        ? "現在の工程: なし"
+        : $"現在の工程: {CurrentStepNumber:n0} / {TotalSteps:n0} — {CurrentStepName}";
+}
 
 public sealed record PositionRow(
     string Code,

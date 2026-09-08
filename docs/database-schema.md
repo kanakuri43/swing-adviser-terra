@@ -330,7 +330,20 @@ manifest が適用した企業アクションの改訂を列挙する。
 | created_at_utc | TEXT | |
 
 一意制約: `(instrument_id, evaluation_bar_date, analyzed_at_utc, strategy_parameter_snapshot_id)`。
-必須指標を計算できない銘柄は `candidate_results` を生成しない。後日の価格・企業アクション訂正でも既存行は上書きせず、新しい `scan_run` の行として追加する。
+必須指標を計算できない銘柄は `candidate_results` を生成しない。後日の価格・企業アクション訂正でも既存行は上書きせず、新しい入力manifestに対する結果を追加する。
+
+### `scan_run_result_uses`
+各スキャンが候補一覧へ採用した不変の `indicator_results` を記録する。入力manifestと戦略スナップショットが同一なら、再計算・候補再評価をせず既存の結果を `Reused` としてこの表へ紐付ける。これにより、結果の計算元と今回の候補一覧の所属を混同せず、監査性を保つ。
+
+| 列 | 型 | 説明 |
+|---|---|---|
+| scan_run_result_use_id | INTEGER PK | |
+| scan_run_id | INTEGER FK → scan_runs | 今回のスキャン |
+| indicator_result_id | INTEGER FK → indicator_results | 計算済みまたは再利用した結果 |
+| use_kind | TEXT | `Computed` / `Reused` |
+| used_at_utc | TEXT | 今回のスキャンで採用した時刻 |
+
+一意制約: `(scan_run_id, indicator_result_id)`。既存の `indicator_results` は移行時にすべて `Computed` としてバックフィルする。
 
 ### `scan_exclusions`
 スキャン対象外となった銘柄の理由。

@@ -16,9 +16,9 @@ public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingest
         var repository = new MarketDataRepository(context);
         var historyStart = TechnicalHistoryWindow.GetStart(update.Request.EvaluationBarDate, requiredHistoryCount, historyLookbackYears);
         var historyStartUtc = DateTime.SpecifyKind(historyStart.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        update.ReportStageProgress("ステップ 1/11: JPXの上場銘柄一覧を取得しています。ネットワーク応答を待機中です。");
+        update.ReportStageProgress("JPXの上場銘柄一覧を取得しています。ネットワーク応答を待機中です。");
         await RefreshGlobalSourceAsync(repository, update, "JPX-ListedIssues", () => ingestion.RefreshInstrumentMasterAsync(update.DailyUpdateRunId, cancellationToken), historyStart, cancellationToken);
-        update.ReportStageProgress("ステップ 1/11: JPXの信用・貸借銘柄一覧を取得しています。ネットワーク応答を待機中です。");
+        update.ReportStageProgress("JPXの信用・貸借銘柄一覧を取得しています。ネットワーク応答を待機中です。");
         await RefreshGlobalSourceAsync(repository, update, "JPX-MarginIssues", () => ingestion.RefreshMarginEligibilityAsync(update.DailyUpdateRunId, cancellationToken), historyStart, cancellationToken);
         var universe = await LatestEligibleUniverseAsync(cancellationToken);
         var refreshTargets = await ingestion.CreateRefreshTargetsAsync(
@@ -28,45 +28,25 @@ public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingest
             historyStartUtc,
             cancellationToken);
         var plannedTargets = new List<(InstrumentRefreshTarget Target, int? CheckpointId)>();
-        update.ReportStageProgress($"ステップ 1/11: {refreshTargets.Count:n0}銘柄の更新計画と再開可能な取得結果を確認しています。", 0, refreshTargets.Count);
+        update.ReportStageProgress($"{refreshTargets.Count:n0}銘柄の更新計画と再開可能な取得結果を確認しています。", 0, refreshTargets.Count);
         var plannedCount = 0;
         foreach (var target in refreshTargets)
         {
             try
             {
+                // A final evaluation bar with a complete analysis window is the immutable daily-history
+                // cache.  Do not turn a cache hit into per-instrument checkpoint reads, history
+                // fingerprinting, and writes: that made an otherwise local re-scan perform thousands
+                // of SQLite round trips.  Missing/provisional data still follows the checkpointed
+                // fetch path below, so cancellation and retry remain auditable where a request occurs.
+                if (!target.RefreshChart)
+                {
+                    plannedTargets.Add((target, null));
+                    continue;
+                }
+
                 var decision = await repository.GetFetchCheckpointDecisionAsync(update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
                     target.InstrumentId.ToString(), null, DateTime.UtcNow, cancellationToken);
-                string? fingerprint = null;
-                if (decision.CanReuse)
-                {
-                    fingerprint = await repository.GetSourceFingerprintAsync("YahooFinanceChartApiV8", target.InstrumentId, update.Request.EvaluationBarDate, historyStart, cancellationToken);
-                    decision = await repository.GetFetchCheckpointDecisionAsync(update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
-                        target.InstrumentId.ToString(), fingerprint, DateTime.UtcNow, cancellationToken);
-                }
-                if (!target.RefreshChart && decision.CanReuse)
-                {
-                    var reused = await repository.RecordReusedCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
-                        target.InstrumentId.ToString(), decision.CheckpointId!.Value, fingerprint!, target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value),
-                        update.Request.EvaluationBarDate, DateTime.UtcNow, checkpointValidity, cancellationToken);
-                    await repository.RecordFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, "Reused", null,
-                        "A valid same-evaluation-date checkpoint was reused.", 0, DateTime.UtcNow, cancellationToken);
-                    await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, reused.DailyUpdateFetchCheckpointId, cancellationToken);
-                    plannedTargets.Add((target, reused.DailyUpdateFetchCheckpointId));
-                    continue;
-                }
-                if (!target.RefreshChart && decision.Disposition == FetchCheckpointDisposition.Missing)
-                {
-                    // Existing verified cache from before this feature is safe to adopt, but is explicitly audited.
-                    fingerprint = await repository.GetSourceFingerprintAsync("YahooFinanceChartApiV8", target.InstrumentId, update.Request.EvaluationBarDate, historyStart, cancellationToken);
-                    var adopted = await repository.StartFetchCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
-                        target.InstrumentId.ToString(), target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value), DateTime.UtcNow, checkpointValidity, "CacheValidated", cancellationToken);
-                    await repository.CompleteFetchCheckpointAsync(adopted.DailyUpdateFetchCheckpointId, "Succeeded", fingerprint, update.Request.EvaluationBarDate, DateTime.UtcNow, cancellationToken);
-                    await repository.RecordFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, "Reused", null,
-                        "A final cached chart and history window were validated for this evaluation date.", 0, DateTime.UtcNow, cancellationToken);
-                    await repository.AttachCheckpointToLatestFetchResultAsync(update.DailyUpdateRunId, "YahooFinanceChartApiV8", target.InstrumentId, adopted.DailyUpdateFetchCheckpointId, cancellationToken);
-                    plannedTargets.Add((target, adopted.DailyUpdateFetchCheckpointId));
-                    continue;
-                }
                 var checkpoint = await repository.StartFetchCheckpointAsync(update.DailyUpdateRunId, update.Request.EvaluationBarDate, "YahooFinanceChartApiV8", target.InstrumentId,
                     target.InstrumentId.ToString(), target.ChartPeriodStartUtc is null ? null : DateOnly.FromDateTime(target.ChartPeriodStartUtc.Value), DateTime.UtcNow, checkpointValidity,
                     decision.Disposition == FetchCheckpointDisposition.Missing ? null : decision.Disposition.ToString(), cancellationToken);
@@ -76,21 +56,36 @@ public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingest
             {
                 plannedCount++;
                 if (plannedCount % 25 == 0 || plannedCount == refreshTargets.Count)
-                    update.ReportStageProgress($"ステップ 1/11: {refreshTargets.Count:n0}銘柄の更新計画を確認中（{plannedCount:n0}/{refreshTargets.Count:n0}銘柄）。", plannedCount, refreshTargets.Count);
+                    update.ReportStageProgress($"{refreshTargets.Count:n0}銘柄の更新計画を確認中（{plannedCount:n0}/{refreshTargets.Count:n0}銘柄）。", plannedCount, refreshTargets.Count);
             }
         }
         var chartRequestCount = plannedTargets.Count(item => item.Target.RefreshChart);
         var cacheHitCount = plannedTargets.Count - chartRequestCount;
-        update.ReportStageProgress($"ステップ 1/11: {universe.Count:n0}銘柄を確認しています（キャッシュ利用 {cacheHitCount:n0}、不足分 {chartRequestCount:n0}件を過去{historyLookbackYears}年で取得）。", 0, universe.Count);
+        update.ReportStageProgress($"{universe.Count:n0}銘柄を確認しています（キャッシュ利用 {cacheHitCount:n0}、不足分 {chartRequestCount:n0}件を過去{historyLookbackYears}年で取得）。", 0, universe.Count);
         var instrumentProgress = new Progress<InstrumentRefreshProgress>(item => update.ReportStageProgress(
-            $"ステップ 1/11: 株価データを{(item.UsedCachedChart ? "キャッシュから確認" : "取得・保存") }中（{item.CompletedCount:n0}/{item.TotalCount:n0}銘柄、取得成功 {item.SuccessfulCount:n0}件、取得失敗 {item.FailedCount:n0}件、キャッシュ確認 {item.ReusedCount:n0}件、直近: {item.LastCompletedCode}）。中止できます。",
+            $"株価データを{(item.UsedCachedChart ? "キャッシュから確認" : "取得・保存") }中（{item.CompletedCount:n0}/{item.TotalCount:n0}銘柄、取得成功 {item.SuccessfulCount:n0}件、取得失敗 {item.FailedCount:n0}件、キャッシュ確認 {item.ReusedCount:n0}件、直近: {item.LastCompletedCode}）。中止できます。",
             item.CompletedCount, item.TotalCount));
         await ingestion.RefreshInstrumentsAsync(update.DailyUpdateRunId, plannedTargets.Select(item => item.Target), cancellationToken, instrumentProgress);
+        if (cacheHitCount != 0)
+        {
+            // Keep the daily-update audit useful without reintroducing one database transaction per
+            // cached symbol. Individual source revisions remain the evidence for every cached bar.
+            context.ExternalFetchResults.Add(new SwingAdviser.Domain.Analysis.ExternalFetchResult
+            {
+                DailyUpdateRunId = update.DailyUpdateRunId,
+                SourceKind = "YahooFinanceChartApiV8Cache",
+                Status = "Reused",
+                ErrorMessage = $"Reused final cached daily-history windows for {cacheHitCount:n0} instruments; no Yahoo chart requests were made.",
+                RecordCount = cacheHitCount,
+                AttemptedAtUtc = DateTime.UtcNow,
+            });
+            await context.SaveChangesAsync(cancellationToken);
+        }
         var finalizedCount = 0;
         var finalizedSucceededCount = 0;
         var finalizedFailedCount = 0;
         var finalizedUnknownCount = 0;
-        update.ReportStageProgress($"ステップ 1/11: 株価取得結果を確定保存しています（0/{chartRequestCount:n0}銘柄）。", 0, chartRequestCount);
+        update.ReportStageProgress($"株価取得結果を確定保存しています（0/{chartRequestCount:n0}銘柄）。", 0, chartRequestCount);
         foreach (var batch in plannedTargets.Where(item => item.Target.RefreshChart)
                      .Select(item => new FetchCheckpointFinalizationTarget(item.Target.InstrumentId, item.CheckpointId!.Value)).Chunk(100))
         {
@@ -103,7 +98,7 @@ public sealed class MarketDataDailyUpdateStage(MarketDataIngestionService ingest
                 else if (item.FetchStatus == "Failed") finalizedFailedCount++;
                 else finalizedUnknownCount++;
             }
-            update.ReportStageProgress($"ステップ 1/11: 株価取得結果を確定保存中（{finalizedCount:n0}/{chartRequestCount:n0}銘柄、取得成功 {finalizedSucceededCount:n0}件、取得失敗 {finalizedFailedCount:n0}件、結果未確認 {finalizedUnknownCount:n0}件）。中止できます。",
+            update.ReportStageProgress($"株価取得結果を確定保存中（{finalizedCount:n0}/{chartRequestCount:n0}銘柄、取得成功 {finalizedSucceededCount:n0}件、取得失敗 {finalizedFailedCount:n0}件、結果未確認 {finalizedUnknownCount:n0}件）。中止できます。",
                 finalizedCount, chartRequestCount);
         }
         // A backwardation source is intentionally not fabricated. Its absence remains visible rather than becoming a zero-cost assumption,

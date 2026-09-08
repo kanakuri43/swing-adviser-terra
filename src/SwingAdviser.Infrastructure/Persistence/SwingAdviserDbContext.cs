@@ -49,6 +49,8 @@ public sealed class SwingAdviserDbContext : DbContext
 
     public DbSet<IndicatorResult> IndicatorResults => Set<IndicatorResult>();
 
+    public DbSet<ScanRunResultUse> ScanRunResultUses => Set<ScanRunResultUse>();
+
     public DbSet<ScanExclusion> ScanExclusions => Set<ScanExclusion>();
 
     public DbSet<CandidateResult> CandidateResults => Set<CandidateResult>();

@@ -33,4 +33,5 @@ public sealed class IndicatorResult
     public AnalysisInputManifest Manifest { get; set; } = null!;
     public StrategyParameterSnapshot StrategyParameterSnapshot { get; set; } = null!;
     public ICollection<CandidateResult> CandidateResults { get; } = new List<CandidateResult>();
+    public ICollection<ScanRunResultUse> ScanRunUses { get; } = new List<ScanRunResultUse>();
 }

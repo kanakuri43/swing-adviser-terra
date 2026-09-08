@@ -8,7 +8,10 @@ public sealed class AllInstrumentScanService
     private readonly ITechnicalScanStore _store;
     private readonly TechnicalIndicatorEngine _indicatorEngine;
     private readonly CandidateScoringEngine _scoringEngine;
-    private readonly int _maxConcurrentInstrumentAnalysis;
+    // At most about 16 * 201 manifest-bar rows are written at once on an initial scan.
+    // This keeps SQLite transactions bounded while replacing per-instrument input queries.
+    private const int InputReadBatchSize = 16;
+    private const int PersistenceBatchSize = 64;
 
     public AllInstrumentScanService(
         ITechnicalScanStore store,
@@ -19,7 +22,10 @@ public sealed class AllInstrumentScanService
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _indicatorEngine = indicatorEngine ?? new TechnicalIndicatorEngine();
         _scoringEngine = scoringEngine ?? new CandidateScoringEngine();
-        _maxConcurrentInstrumentAnalysis = Math.Clamp(maxConcurrentInstrumentAnalysis, 1, 8);
+        // Persistence is intentionally batched through the one DbContext.  Keeping this
+        // argument maintains the runtime configuration contract; concurrent calculation is
+        // not useful while input freezing and SQLite writes share that context.
+        _ = Math.Clamp(maxConcurrentInstrumentAnalysis, 1, 8);
     }
 
     public async Task<TechnicalScanResult> RunAsync(TechnicalScanRequest request, IProgress<TechnicalScanProgress>? progress, CancellationToken cancellationToken)
@@ -28,129 +34,76 @@ public sealed class AllInstrumentScanService
         var universe = await _store.GetEligibleUniverseAsync(request.EvaluationBarDate, request.AnalyzedAtUtc, cancellationToken);
         var snapshotId = await _store.GetOrCreateStrategySnapshotAsync(request.Parameters, request.AnalyzedAtUtc, cancellationToken);
         var scanRunId = await _store.CreateScanRunAsync(request, universe.Count, cancellationToken);
-        if (_maxConcurrentInstrumentAnalysis > 1)
+        var succeeded = 0;
+        var failed = 0;
+        var candidateCount = 0;
+        var pending = new List<TechnicalScanPersistenceItem>(PersistenceBatchSize);
+
+        async Task FlushPendingAsync(CancellationToken token)
         {
-            return await RunBoundedConcurrentAsync(request, progress, cancellationToken, universe, snapshotId, scanRunId);
+            if (pending.Count == 0) return;
+            var batch = pending.ToArray();
+            pending.Clear();
+            await _store.SaveBatchAsync(scanRunId, snapshotId, batch, request.AnalyzedAtUtc, token);
         }
 
-        var succeeded = 0; var failed = 0; var candidateCount = 0;
-        foreach (var instrument in universe.OrderBy(item => item.Code, StringComparer.Ordinal))
+        foreach (var instrumentBatch in universe.OrderBy(item => item.Code, StringComparer.Ordinal).Chunk(InputReadBatchSize))
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyList<PointInTimeAnalysisSeries> seriesBatch;
             try
             {
-                var series = await _store.BuildSeriesAsync(instrument.InstrumentId, request.EvaluationBarDate, request.AnalyzedAtUtc, request.Parameters.RequiredHistoryCount, cancellationToken);
-                var indicators = _indicatorEngine.Calculate(series, request.Parameters);
-                var indicatorId = await _store.SaveIndicatorAsync(scanRunId, snapshotId, series, indicators, cancellationToken);
-                if (indicators.DataStatus != "Ok")
+                seriesBatch = await _store.BuildSeriesBatchAsync(instrumentBatch.Select(item => item.InstrumentId).ToArray(), request.EvaluationBarDate, request.AnalyzedAtUtc, request.Parameters.RequiredHistoryCount, cancellationToken);
+                if (seriesBatch.Count != instrumentBatch.Length || seriesBatch.Select(series => series.InstrumentId).Order().SequenceEqual(instrumentBatch.Select(item => item.InstrumentId).Order()) is false)
                 {
-                    await _store.SaveExclusionAsync(scanRunId, instrument.InstrumentId, indicators.DataStatus, indicators.HistoryAvailableCount, indicators.HistoryRequiredCount, cancellationToken);
+                    throw new InvalidOperationException("The input batch did not return exactly one series per requested instrument.");
                 }
-                else
-                {
-                    var candidates = new[] { _scoringEngine.Evaluate(indicators, "Long", request.Parameters), _scoringEngine.Evaluate(indicators, "Short", request.Parameters) };
-                    await _store.SaveCandidatesAsync(indicatorId, instrument.InstrumentId, candidates, request.AnalyzedAtUtc, cancellationToken);
-                    candidateCount += candidates.Count(candidate => candidate.Matched);
-                }
-                succeeded++;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch
             {
-                failed++;
-                await _store.SaveExclusionAsync(scanRunId, instrument.InstrumentId, "InvalidData", 0, request.Parameters.RequiredHistoryCount, CancellationToken.None);
+                foreach (var instrument in instrumentBatch)
+                {
+                    failed++;
+                    pending.Add(new FailedTechnicalScanPersistenceItem(instrument.InstrumentId, "InvalidData", 0, request.Parameters.RequiredHistoryCount));
+                    progress?.Report(new TechnicalScanProgress(succeeded + failed, universe.Count, candidateCount, failed));
+                }
+                if (pending.Count >= PersistenceBatchSize) await FlushPendingAsync(cancellationToken);
+                continue;
             }
-            progress?.Report(new TechnicalScanProgress(succeeded + failed, universe.Count, candidateCount, failed));
-        }
-        var status = failed == 0 ? "Succeeded" : succeeded == 0 ? "Failed" : "PartiallySucceeded";
-        await _store.CompleteScanRunAsync(scanRunId, status, succeeded, failed, request.AnalyzedAtUtc, cancellationToken);
-        return new TechnicalScanResult(scanRunId, status, universe.Count, succeeded, failed, candidateCount);
-    }
 
-    /// <summary>
-    /// EF Core's DbContext and SQLite writes are intentionally serialized. The expensive per-instrument
-    /// indicator calculations run concurrently after their immutable input series has been frozen.
-    /// </summary>
-    private async Task<TechnicalScanResult> RunBoundedConcurrentAsync(
-        TechnicalScanRequest request,
-        IProgress<TechnicalScanProgress>? progress,
-        CancellationToken cancellationToken,
-        IReadOnlyList<TechnicalScanInstrument> universe,
-        int snapshotId,
-        int scanRunId)
-    {
-        using var storeGate = new SemaphoreSlim(1, 1);
-        var completed = 0;
-        var succeeded = 0;
-        var failed = 0;
-        var candidateCount = 0;
-        await Parallel.ForEachAsync(
-            universe.OrderBy(item => item.Code, StringComparer.Ordinal),
-            new ParallelOptions { MaxDegreeOfParallelism = _maxConcurrentInstrumentAnalysis, CancellationToken = cancellationToken },
-            async (instrument, token) =>
+            foreach (var series in seriesBatch)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    PointInTimeAnalysisSeries series;
-                    await storeGate.WaitAsync(token);
-                    try
+                    var reusable = await _store.FindReusableResultAsync(series.ManifestHash, snapshotId, cancellationToken);
+                    if (reusable is not null)
                     {
-                        series = await _store.BuildSeriesAsync(instrument.InstrumentId, request.EvaluationBarDate, request.AnalyzedAtUtc, request.Parameters.RequiredHistoryCount, token);
+                        pending.Add(new ReusedTechnicalScanPersistenceItem(series.InstrumentId, reusable));
+                        candidateCount += reusable.MatchedCandidateCount;
                     }
-                    finally
+                    else
                     {
-                        storeGate.Release();
+                        var indicators = _indicatorEngine.Calculate(series, request.Parameters);
+                        var candidates = indicators.DataStatus == "Ok"
+                            ? new[] { _scoringEngine.Evaluate(indicators, "Long", request.Parameters), _scoringEngine.Evaluate(indicators, "Short", request.Parameters) }
+                            : Array.Empty<CandidateEvaluation>();
+                        pending.Add(new ComputedTechnicalScanPersistenceItem(series, indicators, candidates));
+                        candidateCount += candidates.Count(candidate => candidate.Matched);
                     }
-
-                    var indicators = _indicatorEngine.Calculate(series, request.Parameters);
-                    IReadOnlyList<CandidateEvaluation>? candidates = indicators.DataStatus == "Ok"
-                        ? [_scoringEngine.Evaluate(indicators, "Long", request.Parameters), _scoringEngine.Evaluate(indicators, "Short", request.Parameters)]
-                        : null;
-
-                    await storeGate.WaitAsync(token);
-                    try
-                    {
-                        var indicatorId = await _store.SaveIndicatorAsync(scanRunId, snapshotId, series, indicators, token);
-                        if (candidates is null)
-                        {
-                            await _store.SaveExclusionAsync(scanRunId, instrument.InstrumentId, indicators.DataStatus, indicators.HistoryAvailableCount, indicators.HistoryRequiredCount, token);
-                        }
-                        else
-                        {
-                            await _store.SaveCandidatesAsync(indicatorId, instrument.InstrumentId, candidates, request.AnalyzedAtUtc, token);
-                            Interlocked.Add(ref candidateCount, candidates.Count(candidate => candidate.Matched));
-                        }
-                    }
-                    finally
-                    {
-                        storeGate.Release();
-                    }
-
-                    Interlocked.Increment(ref succeeded);
+                    succeeded++;
                 }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    throw;
-                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                 catch
                 {
-                    Interlocked.Increment(ref failed);
-                    await storeGate.WaitAsync(CancellationToken.None);
-                    try
-                    {
-                        await _store.SaveExclusionAsync(scanRunId, instrument.InstrumentId, "InvalidData", 0, request.Parameters.RequiredHistoryCount, CancellationToken.None);
-                    }
-                    finally
-                    {
-                        storeGate.Release();
-                    }
+                    failed++;
+                    pending.Add(new FailedTechnicalScanPersistenceItem(series.InstrumentId, "InvalidData", 0, request.Parameters.RequiredHistoryCount));
                 }
-                finally
-                {
-                    var totalCompleted = Interlocked.Increment(ref completed);
-                    progress?.Report(new TechnicalScanProgress(totalCompleted, universe.Count, Volatile.Read(ref candidateCount), Volatile.Read(ref failed)));
-                }
-            });
+                if (pending.Count >= PersistenceBatchSize) await FlushPendingAsync(cancellationToken);
+                progress?.Report(new TechnicalScanProgress(succeeded + failed, universe.Count, candidateCount, failed));
+            }
+        }
+        await FlushPendingAsync(cancellationToken);
         var status = failed == 0 ? "Succeeded" : succeeded == 0 ? "Failed" : "PartiallySucceeded";
         await _store.CompleteScanRunAsync(scanRunId, status, succeeded, failed, request.AnalyzedAtUtc, cancellationToken);
         return new TechnicalScanResult(scanRunId, status, universe.Count, succeeded, failed, candidateCount);

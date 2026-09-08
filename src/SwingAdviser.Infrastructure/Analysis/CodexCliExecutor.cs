@@ -3,7 +3,7 @@ using SwingAdviser.Application.Analysis;
 
 namespace SwingAdviser.Infrastructure.Analysis;
 
-/// <summary>Starts Codex without a shell. Each configured argument is passed through ProcessStartInfo.ArgumentList.</summary>
+/// <summary>Starts an isolated Codex research session without a shell. Each configured argument is passed through ProcessStartInfo.ArgumentList.</summary>
 public sealed class CodexCliExecutor : IAiCliExecutor
 {
     public async Task<AiCliResponse> ExecuteAsync(AiCliRequest request, CancellationToken cancellationToken)
@@ -53,8 +53,11 @@ public sealed class CodexCliExecutor : IAiCliExecutor
         // the standard profile only for this child process.
         if (!string.IsNullOrWhiteSpace(homeDirectory)) startInfo.Environment["HOME"] = homeDirectory;
         else if (!string.IsNullOrWhiteSpace(userProfileDirectory)) startInfo.Environment["HOME"] = userProfileDirectory;
-        // Codex exec accepts the prompt as one argument; ArgumentList preserves it as data rather than shell syntax.
+        // AI research must not load the user's interactive Codex configuration: it can start unrelated
+        // MCP servers (for example language servers) for every candidate. Codex retains authentication
+        // while ignoring that configuration, and ArgumentList keeps the prompt as data rather than shell syntax.
         startInfo.ArgumentList.Add("exec");
+        startInfo.ArgumentList.Add("--ignore-user-config");
         foreach (var argument in request.AdditionalArguments) startInfo.ArgumentList.Add(argument);
         if (!string.IsNullOrWhiteSpace(request.Model)) { startInfo.ArgumentList.Add("--model"); startInfo.ArgumentList.Add(request.Model); }
         if (!string.IsNullOrWhiteSpace(finalMessagePath)) { startInfo.ArgumentList.Add("--output-last-message"); startInfo.ArgumentList.Add(finalMessagePath); }

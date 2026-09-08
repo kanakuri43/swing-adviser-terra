@@ -105,6 +105,59 @@ public class TechnicalAnalysisEngineTests
     }
 
     [Fact]
+    public async Task PointInTimeStore_ReusesFrozenManifestWhenTheSelectedRevisionsAreUnchanged()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var analyzed = new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc);
+        var instrument = new Instrument { FirstObservedAtUtc = analyzed };
+        context.Instruments.Add(instrument);
+        await context.SaveChangesAsync();
+        context.DailyBars.AddRange(CreateBars(201, 100).Select(bar => new DailyBar
+        {
+            InstrumentId = instrument.InstrumentId, TradingDate = bar.TradingDate, Open = bar.Open, High = bar.High, Low = bar.Low, Close = bar.Close,
+            Volume = bar.Volume, Source = "YahooFinanceChartApiV8", FetchedAtUtc = analyzed, Revision = 1, Status = "Final",
+        }));
+        await context.SaveChangesAsync();
+        var store = new EfTechnicalScanStore(context);
+        var evaluation = new DateOnly(2025, 7, 20);
+
+        var first = await store.BuildSeriesAsync(instrument.InstrumentId, evaluation, analyzed, 201, CancellationToken.None);
+        var second = await store.BuildSeriesAsync(instrument.InstrumentId, evaluation, analyzed.AddHours(1), 201, CancellationToken.None);
+
+        Assert.Equal(first.ManifestId, second.ManifestId);
+        Assert.Single(context.AnalysisInputManifests);
+        Assert.Equal(201, context.AnalysisInputManifestBars.Count());
+    }
+
+    [Fact]
+    public async Task PointInTimeStore_BuildsInitialInputsForMultipleInstrumentsAsOneBatch()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var analyzed = new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc);
+        var first = new Instrument { FirstObservedAtUtc = analyzed };
+        var second = new Instrument { FirstObservedAtUtc = analyzed };
+        context.Instruments.AddRange(first, second);
+        await context.SaveChangesAsync();
+        var bars = CreateBars(201, 100);
+        context.DailyBars.AddRange(bars.SelectMany(bar => new[]
+        {
+            new DailyBar { InstrumentId = first.InstrumentId, TradingDate = bar.TradingDate, Open = bar.Open, High = bar.High, Low = bar.Low, Close = bar.Close, Volume = bar.Volume, Source = "YahooFinanceChartApiV8", FetchedAtUtc = analyzed, Revision = 1, Status = "Final" },
+            new DailyBar { InstrumentId = second.InstrumentId, TradingDate = bar.TradingDate, Open = bar.Open, High = bar.High, Low = bar.Low, Close = bar.Close, Volume = bar.Volume, Source = "YahooFinanceChartApiV8", FetchedAtUtc = analyzed, Revision = 1, Status = "Final" },
+        }));
+        await context.SaveChangesAsync();
+
+        var series = await new EfTechnicalScanStore(context).BuildSeriesBatchAsync([first.InstrumentId, second.InstrumentId], new DateOnly(2025, 7, 20), analyzed, 201, CancellationToken.None);
+
+        Assert.Equal([first.InstrumentId, second.InstrumentId], series.Select(item => item.InstrumentId));
+        Assert.All(series, item => Assert.Equal("Ok", item.DataStatus));
+        Assert.Equal(2, await context.AnalysisInputManifests.CountAsync());
+        Assert.Equal(402, await context.AnalysisInputManifestBars.CountAsync());
+        Assert.Empty(context.ChangeTracker.Entries());
+    }
+
+    [Fact]
     public async Task PointInTimeStore_ClearsTrackedManifestBarsAfterEachPersistedInstrument()
     {
         using var connection = OpenMigratedConnection();
@@ -127,6 +180,46 @@ public class TechnicalAnalysisEngineTests
         await store.SaveExclusionAsync(scanRunId, instrument.InstrumentId, "InsufficientHistory", 0, request.Parameters.RequiredHistoryCount, CancellationToken.None);
 
         Assert.Empty(context.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task ScanStore_BatchesComputedResultsAndReusesTheFrozenResultInTheNextScan()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var analyzed = new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc);
+        var instrument = new Instrument { FirstObservedAtUtc = analyzed };
+        context.Instruments.Add(instrument);
+        await context.SaveChangesAsync();
+        context.DailyBars.AddRange(CreateBars(201, 100).Select(bar => new DailyBar
+        {
+            InstrumentId = instrument.InstrumentId, TradingDate = bar.TradingDate, Open = bar.Open, High = bar.High, Low = bar.Low, Close = bar.Close,
+            Volume = bar.Volume, Source = "YahooFinanceChartApiV8", FetchedAtUtc = analyzed, Revision = 1, Status = "Final",
+        }));
+        await context.SaveChangesAsync();
+        var store = new EfTechnicalScanStore(context);
+        var request = new TechnicalScanRequest(new DateOnly(2025, 7, 20), analyzed, null, "test-universe", new TechnicalStrategyParameters());
+        var snapshotId = await store.GetOrCreateStrategySnapshotAsync(request.Parameters, analyzed, CancellationToken.None);
+        var firstRunId = await store.CreateScanRunAsync(request, 1, CancellationToken.None);
+        var series = await store.BuildSeriesAsync(instrument.InstrumentId, request.EvaluationBarDate, analyzed, request.Parameters.RequiredHistoryCount, CancellationToken.None);
+        var indicators = new TechnicalIndicatorEngine().Calculate(series, request.Parameters);
+        var candidates = new[]
+        {
+            new CandidateScoringEngine().Evaluate(indicators, "Long", request.Parameters),
+            new CandidateScoringEngine().Evaluate(indicators, "Short", request.Parameters),
+        };
+        await store.SaveBatchAsync(firstRunId, snapshotId, [new ComputedTechnicalScanPersistenceItem(series, indicators, candidates)], analyzed, CancellationToken.None);
+        await store.CompleteScanRunAsync(firstRunId, "Succeeded", 1, 0, analyzed, CancellationToken.None);
+
+        var reusable = await store.FindReusableResultAsync(series.ManifestHash, snapshotId, CancellationToken.None);
+        var secondRunId = await store.CreateScanRunAsync(request with { AnalyzedAtUtc = analyzed.AddMinutes(1) }, 1, CancellationToken.None);
+        await store.SaveBatchAsync(secondRunId, snapshotId, [new ReusedTechnicalScanPersistenceItem(instrument.InstrumentId, Assert.IsType<ReusableTechnicalScanResult>(reusable))], analyzed.AddMinutes(1), CancellationToken.None);
+
+        Assert.Single(await context.IndicatorResults.ToListAsync());
+        Assert.Equal(2, await context.CandidateResults.CountAsync());
+        var uses = await context.ScanRunResultUses.OrderBy(item => item.ScanRunId).ToListAsync();
+        Assert.Equal(2, uses.Count);
+        Assert.Equal(["Computed", "Reused"], uses.Select(item => item.UseKind));
     }
 
     [Fact]
@@ -189,9 +282,20 @@ public class TechnicalAnalysisEngineTests
         public Task<PointInTimeAnalysisSeries> BuildSeriesAsync(int instrumentId, DateOnly evaluationBarDate, DateTime analyzedAtUtc, int requiredHistoryCount, CancellationToken cancellationToken)
         {
             ProcessedCodes.Add(instrumentId == 1 ? "1000" : "2000");
-            if (instrumentId == 2) throw new InvalidOperationException();
-            return Task.FromResult(Series);
+            return Task.FromResult(Series with { InstrumentId = instrumentId, ManifestHash = $"m{instrumentId}" });
         }
+        public async Task<IReadOnlyList<PointInTimeAnalysisSeries>> BuildSeriesBatchAsync(IReadOnlyList<int> instrumentIds, DateOnly evaluationBarDate, DateTime analyzedAtUtc, int requiredHistoryCount, CancellationToken cancellationToken)
+        {
+            var result = new List<PointInTimeAnalysisSeries>();
+            foreach (var instrumentId in instrumentIds) result.Add(await BuildSeriesAsync(instrumentId, evaluationBarDate, analyzedAtUtc, requiredHistoryCount, cancellationToken));
+            return result;
+        }
+        public Task<ReusableTechnicalScanResult?> FindReusableResultAsync(string manifestHash, int strategySnapshotId, CancellationToken cancellationToken)
+        {
+            if (manifestHash == "m2") throw new InvalidOperationException();
+            return Task.FromResult<ReusableTechnicalScanResult?>(null);
+        }
+        public Task SaveBatchAsync(int scanRunId, int strategySnapshotId, IReadOnlyList<TechnicalScanPersistenceItem> items, DateTime createdAtUtc, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task<int> SaveIndicatorAsync(int scanRunId, int strategySnapshotId, PointInTimeAnalysisSeries series, IndicatorComputation indicator, CancellationToken cancellationToken) => Task.FromResult(1);
         public Task SaveCandidatesAsync(int indicatorResultId, int instrumentId, IReadOnlyList<CandidateEvaluation> candidates, DateTime createdAtUtc, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task SaveExclusionAsync(int scanRunId, int instrumentId, string reason, int available, int required, CancellationToken cancellationToken) => Task.CompletedTask;

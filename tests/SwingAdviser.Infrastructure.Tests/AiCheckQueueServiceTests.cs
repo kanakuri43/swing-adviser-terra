@@ -19,7 +19,7 @@ public class AiCheckQueueServiceTests
 
         Assert.Equal(@"C:\\Users\\test-user", fallback.Environment["HOME"]);
         Assert.Equal(@"D:\\custom-home", configured.Environment["HOME"]);
-        Assert.Equal(["exec", "--output-last-message", @"C:\\Temp\\ai-result.json", "test prompt"], fallback.ArgumentList);
+        Assert.Equal(["exec", "--ignore-user-config", "--output-last-message", @"C:\\Temp\\ai-result.json", "test prompt"], fallback.ArgumentList);
     }
 
     [Fact]
@@ -199,6 +199,8 @@ public class AiCheckQueueServiceTests
         context.AddRange(manifest, strategy, scan); await context.SaveChangesAsync();
         var indicator = new IndicatorResult { ScanRunId = scan.ScanRunId, InstrumentId = instrument.InstrumentId, EvaluationBarDate = new DateOnly(2026, 8, 31), AnalyzedAtUtc = observedAt, ManifestId = manifest.ManifestId, StrategyParameterSnapshotId = strategy.StrategyParameterSnapshotId, DataStatus = "Ok", HistoryAvailableCount = 250, HistoryRequiredCount = 201, VolumeRatioStatus = "Ok", RawValuesJson = "{}", CreatedAtUtc = observedAt };
         context.IndicatorResults.Add(indicator); await context.SaveChangesAsync();
+        context.ScanRunResultUses.Add(new ScanRunResultUse { ScanRunId = scan.ScanRunId, IndicatorResultId = indicator.IndicatorResultId, UseKind = "Computed", UsedAtUtc = observedAt });
+        await context.SaveChangesAsync();
         var candidate = new CandidateResult { IndicatorResultId = indicator.IndicatorResultId, InstrumentId = instrument.InstrumentId, Direction = "Long", SignalPurpose = "Entry", Matched = true, Score = 80, ConfidenceLabel = "High", CandidateScoringEngineVersion = "candidate-scoring-engine-v1", ScoreComponentsJson = "{}", CreatedAtUtc = observedAt };
         context.CandidateResults.Add(candidate); await context.SaveChangesAsync();
         return candidate.CandidateResultId;

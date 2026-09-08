@@ -35,28 +35,10 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Border Style="{StaticResource NoticeBorder}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel>
-                    <TextBlock FontSize="20" FontWeight="SemiBold" Text="日本株スイング判断支援" />
-                    <TextBlock Margin="0,4,0,0" Style="{StaticResource MutedText}" Text="{Binding SafetyNotice}" />
-                </StackPanel>
-                <StackPanel Grid.Column="1" Margin="16,0,0,0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Padding="12,5" Click="RunDailyUpdate" Content="日次分析を更新" IsEnabled="{Binding IsUpdateRunning, Converter={StaticResource BooleanNegationConverter}}" ToolTip="外部データ取得、分析、候補生成、保有再評価を開始します。注文・約定は行いません。" />
-                    <Button Margin="8,0,0,0" Padding="12,5" Click="CancelDailyUpdate" Content="更新を中止" IsEnabled="{Binding IsUpdateRunning}" />
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <Grid Grid.Row="1" Margin="0,12,0,0">
+        <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
@@ -70,11 +52,18 @@
                         <TextBlock DockPanel.Dock="Right" Foreground="#FF256029" FontWeight="SemiBold"
                                    Text="{Binding DailyUpdateProgress.Status}" />
                     </DockPanel>
-                    <ProgressBar Margin="0,8,0,0" Height="14" Minimum="0" Maximum="100"
-                                  IsIndeterminate="{Binding DailyUpdateProgress.IsIndeterminate}"
-                                  Value="{Binding DailyUpdateProgress.ProgressPercent}" />
-                    <TextBlock Margin="0,6,0,0" Style="{StaticResource MutedText}"
-                               Text="{Binding DailyUpdateProgress.Summary}" />
+                    <TextBlock Margin="0,8,0,0" FontWeight="SemiBold" Text="全体の進捗" />
+                    <ProgressBar Margin="0,4,0,0" Height="14" Minimum="0" Maximum="100"
+                                 Value="{Binding DailyUpdateProgress.OverallProgressPercent}" />
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource MutedText}"
+                               Text="{Binding DailyUpdateProgress.OverallSummary}" />
+                    <Separator Margin="0,8,0,6" />
+                    <TextBlock FontWeight="SemiBold" Text="{Binding DailyUpdateProgress.CurrentStepSummary}" />
+                    <ProgressBar Margin="0,4,0,0" Height="10" Minimum="0" Maximum="100"
+                                 IsIndeterminate="{Binding DailyUpdateProgress.IsCurrentStepIndeterminate}"
+                                 Value="{Binding DailyUpdateProgress.CurrentStepProgressPercent}" />
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource MutedText}"
+                               Text="{Binding DailyUpdateProgress.CurrentWorkSummary}" />
                     <TextBlock Margin="0,2,0,0" Style="{StaticResource MutedText}"
                                Text="{Binding DailyUpdateProgress.Detail}" />
                 </StackPanel>
@@ -99,18 +88,30 @@
 
             <Border Grid.Column="2" Margin="12,0,0,0" Padding="12" CornerRadius="4"
                     Background="#FFE8F3FF" BorderBrush="#FF9DC8F0" BorderThickness="1" VerticalAlignment="Stretch">
-                <StackPanel Width="230" VerticalAlignment="Center">
-                    <ProgressBar Height="4" Margin="0,0,0,6" IsIndeterminate="True" Visibility="{Binding IsDisplayLoading, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    <TextBlock TextWrapping="Wrap"
-                            Foreground="#FF164B7A" FontWeight="SemiBold"
-                            Text="{Binding StatusMessage}" />
-                </StackPanel>
+                <Grid Width="260">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                        <Button Padding="12,5" Click="RunDailyUpdate" Content="日次分析を更新" IsEnabled="{Binding IsUpdateRunning, Converter={StaticResource BooleanNegationConverter}}" ToolTip="外部データ取得、分析、候補生成、保有再評価を開始します。注文・約定は行いません。" />
+                        <Button Margin="8,0,0,0" Padding="12,5" Click="CancelDailyUpdate" Content="更新を中止" IsEnabled="{Binding IsUpdateRunning}" />
+                    </StackPanel>
+                    <Separator Grid.Row="1" Margin="0,10,0,8" />
+                    <StackPanel Grid.Row="2" VerticalAlignment="Center">
+                        <ProgressBar Height="4" Margin="0,0,0,6" IsIndeterminate="True" Visibility="{Binding IsDisplayLoading, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <TextBlock TextWrapping="Wrap"
+                                Foreground="#FF164B7A" FontWeight="SemiBold"
+                                Text="{Binding StatusMessage}" />
+                    </StackPanel>
+                </Grid>
             </Border>
         </Grid>
 
-        <TextBlock Grid.Row="2" Margin="0,8" Style="{StaticResource MutedText}" Text="候補・保有・履歴は保存済みの実データです。候補とAI結果は参考情報であり、注文・約定を生成しません。" />
+        <TextBlock Grid.Row="1" Margin="0,8" Style="{StaticResource MutedText}" Text="候補・保有・履歴は保存済みの実データです。候補とAI結果は参考情報であり、注文・約定を生成しません。" />
 
-        <TabControl Grid.Row="3">
+        <TabControl Grid.Row="2">
             <TabItem Header="候補">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
@@ -123,7 +124,42 @@
                         <DataGrid.Columns>
                             <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
                             <DataGridTextColumn Width="170" Binding="{Binding Name}" Header="銘柄名" />
-                            <DataGridTextColumn Width="95" Binding="{Binding Direction}" Header="Long/Short" />
+                            <DataGridTemplateColumn Width="95" Header="Long/Short">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border Padding="7,3" CornerRadius="3" HorizontalAlignment="Center">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#FFEDEDED" />
+                                                    <Setter Property="BorderBrush" Value="#FF777777" />
+                                                    <Setter Property="BorderThickness" Value="1" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Direction}" Value="Long">
+                                                            <Setter Property="Background" Value="#FFE2F3E6" />
+                                                            <Setter Property="BorderBrush" Value="#FF39804A" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Direction}" Value="Short">
+                                                            <Setter Property="Background" Value="#FFFCE6E6" />
+                                                            <Setter Property="BorderBrush" Value="#FFB44040" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock FontWeight="SemiBold" Text="{Binding Direction}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#FF333333" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Direction}" Value="Long"><Setter Property="Foreground" Value="#FF1B5E2A" /></DataTrigger>
+                                                            <DataTrigger Binding="{Binding Direction}" Value="Short"><Setter Property="Foreground" Value="#FF9B2525" /></DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Width="65" Binding="{Binding Score}" Header="スコア" />
                             <DataGridTextColumn Width="115" Binding="{Binding LatestClose}" Header="最終確定終値">
                                 <DataGridTextColumn.ElementStyle>

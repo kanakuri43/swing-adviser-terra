@@ -2,8 +2,10 @@ using System.Net;
 using System.Net.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using SwingAdviser.Application.DailyUpdates;
 using SwingAdviser.Domain.Analysis;
 using SwingAdviser.Domain.MarketData;
+using SwingAdviser.Infrastructure.DailyUpdates;
 using SwingAdviser.Infrastructure.MarketData;
 using SwingAdviser.Infrastructure.Persistence;
 
@@ -259,6 +261,42 @@ public class MarketDataIngestionTests
     }
 
     [Fact]
+    public async Task DailyUpdateStage_ReusesFinalCachedChartsWithoutPerInstrumentFetchAudit()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var now = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var evaluation = new DateOnly(2026, 8, 28);
+        var historyStart = TechnicalHistoryWindow.GetStart(evaluation, requiredHistoryCount: 1, historyLookbackYears: 1);
+        var instrument = new Instrument { FirstObservedAtUtc = now };
+        context.Instruments.Add(instrument);
+        context.DailyUpdateRuns.Add(new DailyUpdateRun { StartedAtUtc = now, Status = "Running" });
+        await context.SaveChangesAsync();
+        context.InstrumentMasterRevisions.Add(new InstrumentMasterRevision
+        {
+            InstrumentId = instrument.InstrumentId, Code = "7203", Name = "Test", MarketSegment = "Prime", InstrumentType = "DomesticCommonStock",
+            ListedStatus = "Listed", ScanEligibility = "Eligible", EffectiveAtDate = evaluation, AvailableAtUtc = now, Source = "Test",
+            SourceFileHash = "test", RecordedAtUtc = now, Revision = 1, Status = "Active",
+        });
+        context.DailyBars.AddRange(
+            CreateFinalBar(instrument.InstrumentId, historyStart, now),
+            CreateFinalBar(instrument.InstrumentId, evaluation, now));
+        await context.SaveChangesAsync();
+
+        var yahoo = new CountingYahooSource();
+        var ingestion = new MarketDataIngestionService(new MarketDataRepository(context), new StaticListedIssuesSource(), new StaticMarginIssuesSource(), yahoo,
+            new FakeTimeProvider(now));
+        var stage = new MarketDataDailyUpdateStage(ingestion, context, historyLookbackYears: 1, requiredHistoryCount: 1, TimeSpan.FromHours(6));
+        await stage.ExecuteAsync(new DailyUpdateContext(1, new DailyUpdateRequest(evaluation, now, "test-universe"), now), CancellationToken.None);
+
+        Assert.Equal(0, yahoo.ChartCalls);
+        var cacheAudit = await context.ExternalFetchResults.SingleAsync(item => item.DailyUpdateRunId == 1 && item.SourceKind == "YahooFinanceChartApiV8Cache");
+        Assert.Equal("Reused", cacheAudit.Status);
+        Assert.Equal(1, cacheAudit.RecordCount);
+        Assert.Empty(await context.ExternalFetchResults.Where(item => item.DailyUpdateRunId == 1 && item.SourceKind == "YahooFinanceChartApiV8" && item.InstrumentId != null).ToListAsync());
+    }
+
+    [Fact]
     public async Task Repository_AppendsOnlyChangedMasterAndMarginRevisions()
     {
         using var connection = OpenMigratedConnection();
@@ -429,6 +467,13 @@ public class MarketDataIngestionTests
             Source = "Test", FetchedAtUtc = observedAt, Revision = revision, SupersedesId = supersedesId, Status = "ProviderUnverified",
         };
 
+    private static SwingAdviser.Domain.MarketData.DailyBar CreateFinalBar(int instrumentId, DateOnly date, DateTime observedAt)
+        => new()
+        {
+            InstrumentId = instrumentId, TradingDate = date, Open = 100m, High = 110m, Low = 90m, Close = 105m, Volume = 1000,
+            Source = "YahooFinanceChartApiV8", FetchedAtUtc = observedAt, Revision = 1, Status = "Final",
+        };
+
     private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> responseFactory) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -520,6 +565,20 @@ public class MarketDataIngestionTests
             {
                 Interlocked.Decrement(ref _activeChartRequests);
             }
+        }
+
+        public Task<FundamentalDataSourceRecord> FetchFundamentalsAsync(string code, CancellationToken cancellationToken)
+            => Task.FromResult(new FundamentalDataSourceRecord(null, null, null, null, null));
+    }
+
+    private sealed class CountingYahooSource : IYahooFinanceSource
+    {
+        public int ChartCalls { get; private set; }
+
+        public Task<YahooChartSourceSnapshot> FetchChartAsync(string code, CancellationToken cancellationToken)
+        {
+            ChartCalls++;
+            throw new InvalidOperationException("A final cached chart must not be fetched again.");
         }
 
         public Task<FundamentalDataSourceRecord> FetchFundamentalsAsync(string code, CancellationToken cancellationToken)

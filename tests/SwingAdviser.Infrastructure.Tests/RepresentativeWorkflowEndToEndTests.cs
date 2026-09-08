@@ -147,6 +147,8 @@ public class RepresentativeWorkflowEndToEndTests
         var indicator = new IndicatorResult { ScanRunId = scan.ScanRunId, InstrumentId = instrument.InstrumentId, EvaluationBarDate = new DateOnly(2026, 8, 31), AnalyzedAtUtc = timestamp, ManifestId = manifest.ManifestId, StrategyParameterSnapshotId = strategy.StrategyParameterSnapshotId, DataStatus = "Ok", HistoryAvailableCount = 250, HistoryRequiredCount = 201, VolumeRatioStatus = "Ok", RawValuesJson = "{}", CreatedAtUtc = timestamp };
         context.IndicatorResults.Add(indicator);
         await context.SaveChangesAsync();
+        context.ScanRunResultUses.Add(new ScanRunResultUse { ScanRunId = scan.ScanRunId, IndicatorResultId = indicator.IndicatorResultId, UseKind = "Computed", UsedAtUtc = timestamp });
+        await context.SaveChangesAsync();
         var candidate = new CandidateResult { IndicatorResultId = indicator.IndicatorResultId, InstrumentId = instrument.InstrumentId, Direction = "Long", SignalPurpose = "Entry", Matched = true, Score = 80, ConfidenceLabel = "High", CandidateScoringEngineVersion = "candidate-scoring-engine-v1", ScoreComponentsJson = "{}", CreatedAtUtc = timestamp };
         context.CandidateResults.Add(candidate);
         await context.SaveChangesAsync();
