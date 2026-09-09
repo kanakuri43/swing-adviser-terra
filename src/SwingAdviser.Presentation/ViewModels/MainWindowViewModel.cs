@@ -18,6 +18,7 @@ public sealed class MainWindowViewModel : ObservableObject
     private UpdateProgressRow _aiQueueProgress = new("未実行", 0, false, "AIチェックはまだありません。", "AIチェックは日次分析の完了を待たず、設定で有効な場合だけ自動投入します。");
     private bool _isUpdateRunning;
     private bool _isDisplayLoading;
+    private string _openPositionProfitAndLoss = "保有建玉の現在損益: なし";
     private CandidateRow? _selectedCandidate;
     private string _dailyUpdateDetailBeforeHeartbeat = "日次分析更新はまだ実行されていません。";
 
@@ -26,6 +27,7 @@ public sealed class MainWindowViewModel : ObservableObject
     public UpdateProgressRow AiQueueProgress { get => _aiQueueProgress; private set => Set(ref _aiQueueProgress, value); }
     public bool IsUpdateRunning { get => _isUpdateRunning; private set => Set(ref _isUpdateRunning, value); }
     public bool IsDisplayLoading { get => _isDisplayLoading; private set => Set(ref _isDisplayLoading, value); }
+    public string OpenPositionProfitAndLoss { get => _openPositionProfitAndLoss; private set => Set(ref _openPositionProfitAndLoss, value); }
     public CandidateRow? SelectedCandidate { get => _selectedCandidate; set => Set(ref _selectedCandidate, value); }
 
     public ObservableCollection<CandidateRow> Candidates { get; } = [];
@@ -36,6 +38,7 @@ public sealed class MainWindowViewModel : ObservableObject
     {
         var positions = await reader.GetOpenPositionsAsync();
         var executions = await reader.GetExecutionsAsync();
+        OpenPositionProfitAndLoss = FormatOpenPositionProfitAndLoss(positions);
         Positions.Clear();
         foreach (var position in positions)
         {
@@ -183,6 +186,14 @@ public sealed class MainWindowViewModel : ObservableObject
     }
 
     private static string Amount(decimal? value) => value is null ? "未算定" : $"{value.Value:n4}円";
+
+    private static string FormatOpenPositionProfitAndLoss(IReadOnlyList<SwingAdviser.Application.Positions.ManualPositionOverview> positions)
+    {
+        if (positions.Count == 0) return "保有建玉の現在損益: なし";
+        if (positions.Any(position => position.ReferenceNetProfitAndLoss is null)) return "保有建玉の現在損益: 未算定";
+        var total = positions.Sum(position => position.ReferenceNetProfitAndLoss!.Value);
+        return $"保有建玉の現在損益: {total:+#,0;-#,0;0}円";
+    }
 
     private static string BuildPrimaryReason(SwingAdviser.Application.Analysis.AiCandidateOverview candidate)
     {

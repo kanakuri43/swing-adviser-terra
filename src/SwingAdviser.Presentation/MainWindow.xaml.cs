@@ -78,6 +78,40 @@ public partial class MainWindow
         _dailyUpdateCancellation?.Cancel();
     }
 
+    private void OpenYahooFinanceChart(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not System.Windows.DependencyObject source || FindVisualAncestor<System.Windows.Controls.Button>(source) is not null)
+            return;
+
+        var row = FindVisualAncestor<System.Windows.Controls.DataGridRow>(source);
+        var code = row?.DataContext switch
+        {
+            ViewModels.CandidateRow candidate => candidate.Code,
+            ViewModels.PositionRow position => position.Code,
+            ViewModels.ExecutionRow execution => execution.Code,
+            _ => null,
+        };
+        if (string.IsNullOrWhiteSpace(code) || !System.Text.RegularExpressions.Regex.IsMatch(code, "^\\d{4,5}$"))
+            return;
+
+        var chartUrl = $"https://finance.yahoo.co.jp/quote/{code}.T/chart";
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(chartUrl) { UseShellExecute = true });
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            System.Windows.MessageBox.Show(this, $"Yahoo!ファイナンスのチャートを開けませんでした。\n{exception.Message}", "ブラウザ起動エラー", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        }
+    }
+
+    private static T? FindVisualAncestor<T>(System.Windows.DependencyObject source) where T : System.Windows.DependencyObject
+    {
+        for (System.Windows.DependencyObject? current = source; current is not null; current = System.Windows.Media.VisualTreeHelper.GetParent(current))
+            if (current is T result) return result;
+        return null;
+    }
+
     private async Task ReloadDisplayedDataAsync(string operation)
     {
         _viewModel.BeginDisplayReload(operation);

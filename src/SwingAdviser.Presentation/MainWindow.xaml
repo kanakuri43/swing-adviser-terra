@@ -22,10 +22,6 @@
             <Setter Property="CornerRadius" Value="4" />
             <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Gray9}" />
         </Style>
-        <Style x:Key="ProgressCard" TargetType="Border" BasedOn="{StaticResource NoticeBorder}">
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="BorderBrush" Value="{DynamicResource MahApps.Brushes.Gray6}" />
-        </Style>
         <Style TargetType="DataGridCell">
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
@@ -39,74 +35,31 @@
         </Grid.RowDefinitions>
 
         <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <Border Style="{StaticResource ProgressCard}" BorderBrush="#FF6F9D75">
-                <StackPanel>
-                    <DockPanel>
-                        <TextBlock FontWeight="SemiBold" Text="日次分析更新" />
-                        <TextBlock DockPanel.Dock="Right" Foreground="#FF256029" FontWeight="SemiBold"
-                                   Text="{Binding DailyUpdateProgress.Status}" />
-                    </DockPanel>
-                    <TextBlock Margin="0,8,0,0" FontWeight="SemiBold" Text="全体の進捗" />
-                    <ProgressBar Margin="0,4,0,0" Height="14" Minimum="0" Maximum="100"
-                                 Value="{Binding DailyUpdateProgress.OverallProgressPercent}" />
-                    <TextBlock Margin="0,4,0,0" Style="{StaticResource MutedText}"
-                               Text="{Binding DailyUpdateProgress.OverallSummary}" />
-                    <Separator Margin="0,8,0,6" />
-                    <TextBlock FontWeight="SemiBold" Text="{Binding DailyUpdateProgress.CurrentStepSummary}" />
-                    <ProgressBar Margin="0,4,0,0" Height="10" Minimum="0" Maximum="100"
-                                 IsIndeterminate="{Binding DailyUpdateProgress.IsCurrentStepIndeterminate}"
-                                 Value="{Binding DailyUpdateProgress.CurrentStepProgressPercent}" />
-                    <TextBlock Margin="0,4,0,0" Style="{StaticResource MutedText}"
-                               Text="{Binding DailyUpdateProgress.CurrentWorkSummary}" />
-                    <TextBlock Margin="0,2,0,0" Style="{StaticResource MutedText}"
-                               Text="{Binding DailyUpdateProgress.Detail}" />
-                </StackPanel>
-            </Border>
+            <StackPanel Orientation="Horizontal">
+                <Button Padding="12,5" Click="RunDailyUpdate" Content="日次分析を更新" IsEnabled="{Binding IsUpdateRunning, Converter={StaticResource BooleanNegationConverter}}" ToolTip="外部データ取得、分析、候補生成、保有再評価を開始します。注文・約定は行いません。" />
+                <Button Margin="8,0,0,0" Padding="12,5" Click="CancelDailyUpdate" Content="更新を中止" IsEnabled="{Binding IsUpdateRunning}" />
+            </StackPanel>
 
-            <Border Grid.Column="1" Margin="12,0,0,0" Style="{StaticResource ProgressCard}" BorderBrush="#FF4D8BC8">
-                <StackPanel>
-                    <DockPanel>
-                        <TextBlock FontWeight="SemiBold" Text="AIチェック" />
-                        <TextBlock DockPanel.Dock="Right" Foreground="#FF2166A5" FontWeight="SemiBold"
-                                   Text="{Binding AiQueueProgress.Status}" />
-                    </DockPanel>
-                    <ProgressBar Margin="0,8,0,0" Height="14" Minimum="0" Maximum="100"
-                                 IsIndeterminate="{Binding AiQueueProgress.IsIndeterminate}"
-                                 Value="{Binding AiQueueProgress.ProgressPercent}" />
-                    <TextBlock Margin="0,6,0,0" Style="{StaticResource MutedText}"
-                               Text="{Binding AiQueueProgress.Summary}" />
-                    <TextBlock Margin="0,2,0,0" Style="{StaticResource MutedText}"
-                               Text="{Binding AiQueueProgress.Detail}" />
-                </StackPanel>
-            </Border>
+            <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                <TextBlock HorizontalAlignment="Right" FontSize="16" FontWeight="SemiBold" Text="{Binding OpenPositionProfitAndLoss}" />
+                <TextBlock HorizontalAlignment="Right" Margin="0,2,0,0" Style="{StaticResource MutedText}" Text="最新確定終値ベース・コスト控除後の参考値" />
+            </StackPanel>
 
-            <Border Grid.Column="2" Margin="12,0,0,0" Padding="12" CornerRadius="4"
-                    Background="#FFE8F3FF" BorderBrush="#FF9DC8F0" BorderThickness="1" VerticalAlignment="Stretch">
-                <Grid Width="260">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
-                        <Button Padding="12,5" Click="RunDailyUpdate" Content="日次分析を更新" IsEnabled="{Binding IsUpdateRunning, Converter={StaticResource BooleanNegationConverter}}" ToolTip="外部データ取得、分析、候補生成、保有再評価を開始します。注文・約定は行いません。" />
-                        <Button Margin="8,0,0,0" Padding="12,5" Click="CancelDailyUpdate" Content="更新を中止" IsEnabled="{Binding IsUpdateRunning}" />
-                    </StackPanel>
-                    <Separator Grid.Row="1" Margin="0,10,0,8" />
-                    <StackPanel Grid.Row="2" VerticalAlignment="Center">
-                        <ProgressBar Height="4" Margin="0,0,0,6" IsIndeterminate="True" Visibility="{Binding IsDisplayLoading, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <TextBlock TextWrapping="Wrap"
-                                Foreground="#FF164B7A" FontWeight="SemiBold"
-                                Text="{Binding StatusMessage}" />
-                    </StackPanel>
-                </Grid>
-            </Border>
+            <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,8,0,0" Orientation="Horizontal">
+                <TextBlock FontWeight="SemiBold" Text="{Binding DailyUpdateProgress.Status}" />
+                <TextBlock Margin="8,0,0,0" Style="{StaticResource MutedText}" Text="{Binding DailyUpdateProgress.OverallSummary}" />
+                <TextBlock Margin="20,0,0,0" FontWeight="SemiBold" Text="AI" />
+                <TextBlock Margin="8,0,0,0" Style="{StaticResource MutedText}" Text="{Binding AiQueueProgress.Summary}" />
+            </StackPanel>
         </Grid>
 
         <TextBlock Grid.Row="1" Margin="0,8" Style="{StaticResource MutedText}" Text="候補・保有・履歴は保存済みの実データです。候補とAI結果は参考情報であり、注文・約定を生成しません。" />
@@ -120,7 +73,9 @@
                     </Grid.RowDefinitions>
                     <DataGrid x:Name="CandidateGrid" AutoGenerateColumns="False" FrozenColumnCount="3" IsReadOnly="True" SelectionMode="Extended"
                               CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding Candidates}"
-                              SelectedItem="{Binding SelectedCandidate, Mode=TwoWay}">
+                              SelectedItem="{Binding SelectedCandidate, Mode=TwoWay}"
+                              MouseDoubleClick="OpenYahooFinanceChart"
+                              ToolTip="行をダブルクリックするとYahoo!ファイナンスのチャートを開きます。">
                         <DataGrid.Columns>
                             <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
                             <DataGridTextColumn Width="170" Binding="{Binding Name}" Header="銘柄名" />
@@ -246,7 +201,9 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <DataGrid AutoGenerateColumns="False" FrozenColumnCount="3" IsReadOnly="True"
-                              CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding Positions}">
+                              CanUserAddRows="False" CanUserDeleteRows="False" ItemsSource="{Binding Positions}"
+                              MouseDoubleClick="OpenYahooFinanceChart"
+                              ToolTip="行をダブルクリックするとYahoo!ファイナンスのチャートを開きます。">
                         <DataGrid.Columns>
                             <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
                             <DataGridTextColumn Width="150" Binding="{Binding Name}" Header="銘柄名" />
@@ -289,7 +246,9 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <DataGrid AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
-                              ItemsSource="{Binding Executions}" RowDetailsVisibilityMode="VisibleWhenSelected">
+                              ItemsSource="{Binding Executions}" RowDetailsVisibilityMode="VisibleWhenSelected"
+                              MouseDoubleClick="OpenYahooFinanceChart"
+                              ToolTip="行をダブルクリックするとYahoo!ファイナンスのチャートを開きます。">
                         <DataGrid.Columns>
                             <DataGridTextColumn Width="70" Binding="{Binding Code}" Header="コード" />
                             <DataGridTextColumn Width="160" Binding="{Binding Name}" Header="銘柄名" />
