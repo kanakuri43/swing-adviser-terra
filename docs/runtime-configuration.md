@@ -14,7 +14,7 @@ Phase 12 の「日次分析を更新」は、利用者が明示的に開始す�
 | `SWING_ADVISER_SCAN_MAX_CONCURRENCY` | ステップ5の銘柄別指標計算を同時実行する上限（1〜8）。SQLiteの監査用保存は順番に行う | `4` |
 | `SWING_ADVISER_HISTORY_LOOKBACK_YEARS` | 日次スキャンの有限履歴窓（年）。必要指標のウォームアップ期間がより長い場合はそちらを優先 | `5` |
 | `SWING_ADVISER_FETCH_CHECKPOINT_VALIDITY_MINUTES` | 同一評価日の成功取得を中断再開で再利用できる時間（1〜1440分）。期限切れなら再取得する | `360` |
-| `SWING_ADVISER_CODEX_PATH` | Codex CLI実行ファイルを明示指定する | npmの標準配置 → PATH上の`codex.exe` → `codex` |
+| `SWING_ADVISER_CODEX_PATH` | Codex CLI実行ファイルを明示指定する | npmの標準配置 → Codexデスクトップ版の`%LOCALAPPDATA%\OpenAI\Codex\bin\*\codex.exe`／`%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\*\codex.exe` → PATH上の`codex.exe` → `codex` |
 | `SWING_ADVISER_CODEX_WORKING_DIRECTORY` | Codex CLIの作業ディレクトリ | 未設定 |
 | `SWING_ADVISER_CODEX_MODEL` | Codex CLIに渡すモデル名 | 未設定 |
 | `SWING_ADVISER_CODEX_ARGUMENTS` | Codex CLI追加引数。US区切り（U+001F） | 空 |

@@ -46,7 +46,7 @@ EMA[i]   = alpha * Close[i] + (1 - alpha) * EMA[i-1]  (i >= N)
 
 初期戦略では EMA200 を必須とする。EMA200の当日値だけなら200本、前日値やクロスを使う判定には201本の有効日足を必要とするため、スキャンの最低履歴本数は201本とする。不足銘柄は Long/Short 候補から除外し、`InsufficientHistory`、保有本数、必要本数を保存・表示する。短いEMAへの代替やスコア重みの再配分は行わない。
 
-指標エンジンは、Infrastructureのpoint-in-time選択・企業アクション調整境界だけが生成できる検証済み系列型を入力とし、manifestから再構築した日付ごとの価格revision ID、価格revision集合hash、企業アクション集合hash、分析窓開始日、manifest hashを保持する。評価日を末尾とする日付昇順・重複なしの確定済みまたは訂正済み日足だけを受け付け、manifestと件数・先頭日・末尾日・最低必要本数が一致しない系列、評価日より後の足、暫定足・無効足は `InvalidData` として計算しない。`PointInTimeUnverified`、企業アクションの `ReconciliationRequired` も成功値へフォールバックしない。
+指標エンジンは、Infrastructureのpoint-in-time選択・企業アクション調整境界だけが生成できる検証済み系列型を入力とし、価格revision集合hash、企業アクション集合hash、分析窓開始日、入力本数、manifest hashを保持する。日足・企業アクションの明細参照はマニフェストごとに保存せず、日次更新のDB増加を抑える。評価日を末尾とする日付昇順・重複なしの確定済みまたは訂正済み日足だけを受け付け、manifestと件数・先頭日・末尾日・最低必要本数が一致しない系列、評価日より後の足、暫定足・無効足は `InvalidData` として計算しない。`PointInTimeUnverified`、企業アクションの `ReconciliationRequired` も成功値へフォールバックしない。
 
 Long/Short 判定条件(仮決定、非対称):
 - Long Entry: 当日 MACD line > signal、EMA20 > EMA50 > EMA200、出来高倍率が方向別の最低値以上なら候補とする。出来高倍率は候補の足切り用フィルタとしてのみ使用し、Longのスコア構成要素にはしない。
@@ -74,9 +74,9 @@ Long/Short 判定条件(仮決定、非対称):
 
 ## All-instrument scan contract
 
-初期ユニバースは設定化した`TSE`・`DomesticCommonStock`・`Listed`・`ScanEligibility.Eligible`の積集合とする。`Unknown`を適格と推測せず、評価日に有効で分析時点に利用可能かつrecorded cutoff以前の銘柄マスタrevisionだけを使用する。Shortのテクニカル候補と実際の売建可否・規制状態は別情報とし、売建可否を候補engineへ混入させない。
+初期ユニバースは設定化した`TSE`・`DomesticCommonStock`・`Listed`・`ScanEligibility.Eligible`の積集合とする。`Unknown`を適格と推測せず、分析実行時点に利用可能かつrecorded cutoff以前の最新銘柄マスタrevisionだけを使用する。これは更新時に取得した銘柄一覧でユニバースを定め、日足・企業アクションだけを評価日に固定するためである。したがって前営業日の確定日足を朝に分析しても、当日取得した銘柄マスタの基準日差でユニバース全体を空にしない。Shortのテクニカル候補と実際の売建可否・規制状態は別情報とし、売建可否を候補engineへ混入させない。
 
-Applicationの全銘柄スキャンは、評価時点で有効かつ利用可能だった銘柄コードrevisionをinstrument masterへ結び付け、銘柄コード昇順の決定的な順序で各銘柄の検証済みpoint-in-time requestから指標を1回計算し、その同一結果をLong/Shortへ各1回評価する。1銘柄の予期しない失敗で後続を停止せず、進捗・候補件数・失敗件数と`Succeeded`/`PartiallySucceeded`/`Failed`の集計を返す。indicator resultはrun/manifest/instrument/evaluation date/manifest hashのidentityを保持し、入力bundleとの不一致をfail-closedとする。runとengine version・parameter snapshotの不一致も同様に拒否する。parameter snapshotの正規化JSONとhashにはstrategy key/version、candidate algorithm version、型付きパラメータ本体を含める。候補順位は方向別にscore降順、同点は銘柄コード昇順とする。
+Applicationの全銘柄スキャンは、分析実行時点に利用可能だった最新の銘柄コードrevisionをinstrument masterへ結び付け、銘柄コード昇順の決定的な順序で各銘柄の検証済みpoint-in-time requestから指標を1回計算し、その同一結果をLong/Shortへ各1回評価する。日足・企業アクションの評価日境界はこのユニバース選択によって緩和しない。1銘柄の予期しない失敗で後続を停止せず、進捗・候補件数・失敗件数と`Succeeded`/`PartiallySucceeded`/`Failed`の集計を返す。indicator resultはrun/manifest/instrument/evaluation date/manifest hashのidentityを保持し、入力bundleとの不一致をfail-closedとする。runとengine version・parameter snapshotの不一致も同様に拒否する。parameter snapshotの正規化JSONとhashにはstrategy key/version、candidate algorithm version、型付きパラメータ本体を含める。候補順位は方向別にscore降順、同点は銘柄コード昇順とする。
 
 ## Evaluation time
 `EvaluationBarDate` は分析に使った最新の確定済み日足、`AnalyzedAt` は実際に分析を実行したJST日時とし、分離して保存する。分析には `EvaluationBarDate` 以前かつ `AnalyzedAt` 時点で利用可能なデータだけを使う。15:30経過だけで日足確定とみなさない。当日の候補は原則として次の取引セッションに向けた判断支援情報である。

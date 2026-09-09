@@ -159,7 +159,9 @@ public sealed class DataAvailabilityVerificationDailyUpdateStage(SwingAdviserDbC
 
     public async Task<DailyUpdateStepResult> ExecuteAsync(DailyUpdateContext update, CancellationToken cancellationToken)
     {
-        var eligible = await context.InstrumentMasterRevisions.Where(revision => revision.EffectiveAtDate <= update.Request.EvaluationBarDate && revision.AvailableAtUtc <= update.AnalyzedAtUtc && revision.Status == "Active").ToListAsync(cancellationToken);
+        // Keep availability reporting aligned with the technical scan: the just-refreshed master
+        // snapshot defines the universe, while only price/action inputs are bounded by the final bar date.
+        var eligible = await context.InstrumentMasterRevisions.Where(revision => revision.AvailableAtUtc <= update.AnalyzedAtUtc && revision.RecordedAtUtc <= update.AnalyzedAtUtc && revision.Status == "Active").ToListAsync(cancellationToken);
         var current = eligible.GroupBy(revision => revision.InstrumentId).Select(group => group.OrderByDescending(revision => revision.Revision).First())
             .Where(revision => revision.MarketSegment is "Prime" or "Standard" or "Growth" && revision.InstrumentType == "DomesticCommonStock" && revision.ListedStatus == "Listed" && revision.ScanEligibility == "Eligible").ToArray();
         var ids = current.Select(revision => revision.InstrumentId).ToArray();

@@ -23,6 +23,43 @@ public class AiCheckQueueServiceTests
     }
 
     [Fact]
+    public void CodexCliStartInfo_UsesExistingCodexHome()
+    {
+        var codexHome = Path.Combine(Path.GetTempPath(), $"swing-adviser-codex-home-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(codexHome);
+        try
+        {
+            var request = new AiCliRequest("codex.exe", null, null, [], "test prompt", TimeSpan.FromSeconds(5));
+
+            var startInfo = CodexCliExecutor.CreateStartInfo(request, null, @"C:\\Users\\test-user", codexHomeDirectory: codexHome);
+
+            Assert.Equal(codexHome, startInfo.Environment["CODEX_HOME"]);
+        }
+        finally
+        {
+            Directory.Delete(codexHome);
+        }
+    }
+
+    [Fact]
+    public void CodexCliPathResolver_FindsVersionedDesktopExecutable()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"swing-adviser-codex-bin-{Guid.NewGuid():N}");
+        var versionDirectory = Path.Combine(root, "version-1");
+        Directory.CreateDirectory(versionDirectory);
+        var executable = Path.Combine(versionDirectory, "codex.exe");
+        File.WriteAllText(executable, string.Empty);
+        try
+        {
+            Assert.Equal(executable, CodexCliPathResolver.FindExecutableInDirectory(root));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task CliFailure_CreatesTerminalAttemptWithoutInvalidatingTechnicalCandidate()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"swing-adviser-ai-test-{Guid.NewGuid():N}.db");

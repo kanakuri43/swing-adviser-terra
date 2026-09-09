@@ -64,6 +64,41 @@ public class TechnicalAnalysisEngineTests
     }
 
     [Fact]
+    public async Task ScanStore_UsesMasterSnapshotAvailableAtAnalysisWhenItsEffectiveDateIsNewerThanTheFinalBar()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var evaluation = new DateOnly(2026, 9, 8);
+        var analyzed = new DateTime(2026, 9, 9, 0, 0, 0, DateTimeKind.Utc);
+        var instrument = new Instrument { FirstObservedAtUtc = analyzed };
+        context.Instruments.Add(instrument);
+        await context.SaveChangesAsync();
+        context.InstrumentMasterRevisions.Add(new InstrumentMasterRevision
+        {
+            InstrumentId = instrument.InstrumentId,
+            Code = "7203",
+            Name = "テスト銘柄",
+            MarketSegment = "Prime",
+            InstrumentType = "DomesticCommonStock",
+            ListedStatus = "Listed",
+            ScanEligibility = "Eligible",
+            EffectiveAtDate = evaluation.AddDays(1),
+            AvailableAtUtc = analyzed,
+            Source = "Test",
+            SourceFileHash = "master",
+            RecordedAtUtc = analyzed,
+            Revision = 1,
+            Status = "Active",
+        });
+        await context.SaveChangesAsync();
+
+        var universe = await new EfTechnicalScanStore(context).GetEligibleUniverseAsync(evaluation, analyzed, CancellationToken.None);
+
+        var result = Assert.Single(universe);
+        Assert.Equal("7203", result.Code);
+    }
+
+    [Fact]
     public async Task PointInTimeStore_FailsClosedForUnverifiedCorporateAction()
     {
         using var connection = OpenMigratedConnection();
@@ -127,7 +162,8 @@ public class TechnicalAnalysisEngineTests
 
         Assert.Equal(first.ManifestId, second.ManifestId);
         Assert.Single(context.AnalysisInputManifests);
-        Assert.Equal(201, context.AnalysisInputManifestBars.Count());
+        Assert.Empty(context.AnalysisInputManifestBars);
+        Assert.Empty(context.AnalysisInputManifestCorporateActions);
     }
 
     [Fact]
@@ -153,7 +189,8 @@ public class TechnicalAnalysisEngineTests
         Assert.Equal([first.InstrumentId, second.InstrumentId], series.Select(item => item.InstrumentId));
         Assert.All(series, item => Assert.Equal("Ok", item.DataStatus));
         Assert.Equal(2, await context.AnalysisInputManifests.CountAsync());
-        Assert.Equal(402, await context.AnalysisInputManifestBars.CountAsync());
+        Assert.Empty(context.AnalysisInputManifestBars);
+        Assert.Empty(context.AnalysisInputManifestCorporateActions);
         Assert.Empty(context.ChangeTracker.Entries());
     }
 

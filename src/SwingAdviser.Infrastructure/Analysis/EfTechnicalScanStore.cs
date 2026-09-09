@@ -24,7 +24,11 @@ public sealed class EfTechnicalScanStore : ITechnicalScanStore
 
     public async Task<IReadOnlyList<TechnicalScanInstrument>> GetEligibleUniverseAsync(DateOnly date, DateTime analyzedAtUtc, CancellationToken cancellationToken)
     {
-        var revisions = await _context.InstrumentMasterRevisions.Where(item => item.EffectiveAtDate <= date && item.AvailableAtUtc <= analyzedAtUtc && item.RecordedAtUtc <= analyzedAtUtc).ToListAsync(cancellationToken);
+        // The instrument master is a current snapshot obtained during the update.  It selects the
+        // scan universe as observed when analysis runs, whereas price/action inputs remain bounded
+        // by evaluationBarDate.  Requiring EffectiveAtDate <= date would make a morning scan's
+        // previous final daily bar unusable whenever today's master snapshot is first imported.
+        var revisions = await _context.InstrumentMasterRevisions.Where(item => item.AvailableAtUtc <= analyzedAtUtc && item.RecordedAtUtc <= analyzedAtUtc).ToListAsync(cancellationToken);
         return revisions.GroupBy(item => item.InstrumentId).Select(group => group.OrderByDescending(item => item.Revision).First())
             .Where(item => item.MarketSegment is "Prime" or "Standard" or "Growth" && item.InstrumentType == "DomesticCommonStock" && item.ListedStatus == "Listed" && item.ScanEligibility == "Eligible" && item.Status == "Active")
             .OrderBy(item => item.Code, StringComparer.Ordinal).Select(item => new TechnicalScanInstrument(item.InstrumentId, item.Code)).ToArray();
@@ -89,9 +93,9 @@ public sealed class EfTechnicalScanStore : ITechnicalScanStore
                 _context.AnalysisInputManifests.AddRange(newManifests);
                 await _context.SaveChangesAsync(cancellationToken);
                 foreach (var manifest in newManifests) manifests[(manifest.InstrumentId, manifest.ManifestHash)] = manifest;
-                _context.AddRange(missing.SelectMany(item => item.Bars.Select(bar => new AnalysisInputManifestBar { ManifestId = manifests[(item.InstrumentId, item.ManifestHash)].ManifestId, TradingDate = bar.TradingDate, DailyBarId = bar.DailyBarId })));
-                _context.AddRange(missing.SelectMany(item => item.Actions.Select(action => new AnalysisInputManifestCorporateAction { ManifestId = manifests[(item.InstrumentId, item.ManifestHash)].ManifestId, CorporateActionId = action.CorporateActionId })));
-                await _context.SaveChangesAsync(cancellationToken);
+                // Keep a compact, deterministic fingerprint only.  Persisting one relation for every
+                // bar in every daily manifest makes ordinary scans grow the local SQLite database by
+                // millions of rows; the range, count, and revision-set hashes remain with the manifest.
                 await transaction.CommitAsync(cancellationToken);
             }
             catch

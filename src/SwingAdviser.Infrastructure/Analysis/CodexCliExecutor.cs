@@ -14,7 +14,8 @@ public sealed class CodexCliExecutor : IAiCliExecutor
             request,
             Environment.GetEnvironmentVariable("HOME"),
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            finalMessagePath);
+            finalMessagePath,
+            Environment.GetEnvironmentVariable("CODEX_HOME"));
         try
         {
             using var process = new Process { StartInfo = startInfo };
@@ -43,7 +44,8 @@ public sealed class CodexCliExecutor : IAiCliExecutor
         }
     }
 
-    internal static ProcessStartInfo CreateStartInfo(AiCliRequest request, string? homeDirectory, string? userProfileDirectory, string? finalMessagePath = null)
+    internal static ProcessStartInfo CreateStartInfo(AiCliRequest request, string? homeDirectory, string? userProfileDirectory, string? finalMessagePath = null,
+        string? codexHomeDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         var startInfo = new ProcessStartInfo { FileName = request.ExecutablePath, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
@@ -56,6 +58,11 @@ public sealed class CodexCliExecutor : IAiCliExecutor
         // AI research must not load the user's interactive Codex configuration: it can start unrelated
         // MCP servers (for example language servers) for every candidate. Codex retains authentication
         // while ignoring that configuration, and ArgumentList keeps the prompt as data rather than shell syntax.
+        var resolvedCodexHome = string.IsNullOrWhiteSpace(codexHomeDirectory)
+            ? ResolveCodexHome(homeDirectory, userProfileDirectory)
+            : codexHomeDirectory;
+        if (!string.IsNullOrWhiteSpace(resolvedCodexHome) && Directory.Exists(resolvedCodexHome))
+            startInfo.Environment["CODEX_HOME"] = resolvedCodexHome;
         startInfo.ArgumentList.Add("exec");
         startInfo.ArgumentList.Add("--ignore-user-config");
         foreach (var argument in request.AdditionalArguments) startInfo.ArgumentList.Add(argument);
@@ -63,6 +70,12 @@ public sealed class CodexCliExecutor : IAiCliExecutor
         if (!string.IsNullOrWhiteSpace(finalMessagePath)) { startInfo.ArgumentList.Add("--output-last-message"); startInfo.ArgumentList.Add(finalMessagePath); }
         startInfo.ArgumentList.Add(request.Prompt);
         return startInfo;
+    }
+
+    private static string? ResolveCodexHome(string? homeDirectory, string? userProfileDirectory)
+    {
+        var baseDirectory = !string.IsNullOrWhiteSpace(homeDirectory) ? homeDirectory : userProfileDirectory;
+        return string.IsNullOrWhiteSpace(baseDirectory) ? null : Path.Combine(baseDirectory, ".codex");
     }
 
     private static string ReadFinalMessageOrFallback(string path, string fallback)

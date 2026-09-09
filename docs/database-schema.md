@@ -86,7 +86,7 @@ JPX 上場銘柄一覧の取り込みごとの改訂履歴。
 | status | TEXT | `Active` / `Superseded` |
 
 一意制約: `(instrument_id, revision)`。
-全銘柄スキャンは、評価日に `effective_at_date` が有効かつ `available_at_utc <= AnalyzedAt` の最新改訂だけを使う（[`technical-analysis.md`](./technical-analysis.md) All-instrument scan contract）。`Unknown` を適格と推測しない。
+全銘柄スキャンは、`available_at_utc <= AnalyzedAt` かつ `recorded_at_utc <= AnalyzedAt` の最新改訂だけをユニバース選択に使う（[`technical-analysis.md`](./technical-analysis.md) All-instrument scan contract）。日足・企業アクションと異なり、銘柄マスタの `effective_at_date` は前営業日の確定日足を朝に分析する際の除外条件にしない。`Unknown` を適格と推測しない。
 
 ### `margin_regulation_revisions`
 信用取引対象区分・売建可否・規制情報（JPX 信用取引銘柄一覧・貸株銘柄一覧）。銘柄マスタとは別ソースのため分離する。
@@ -190,7 +190,7 @@ PER/PBR/時価総額等、構造化ファンダメンタルデータのキャッ
 分析の再現性を担保する土台。指標計算・候補抽出・risk basis のすべてがこの層を参照する。
 
 ### `analysis_input_manifests`
-特定銘柄・特定評価日・特定分析実行時点で、実際に使用した日足改訂集合と企業アクション改訂集合を凍結する。
+特定銘柄・特定評価日・特定分析実行時点で、実際に使用した日足改訂集合と企業アクション改訂集合のコンパクトな指紋を保存する。
 
 | 列 | 型 | 説明 |
 |---|---|---|
@@ -209,7 +209,7 @@ PER/PBR/時価総額等、構造化ファンダメンタルデータのキャッ
 一意制約: `(instrument_id, evaluation_bar_date, analyzed_at_utc, manifest_hash)`。
 
 ### `analysis_input_manifest_bars`
-manifest が実際に使用した日足の改訂を、取引日ごとに 1 件ずつ列挙する。
+旧バージョンが manifest ごとに使用日足を列挙した互換テーブル。新しい分析では書き込まない。
 
 | 列 | 型 | 説明 |
 |---|---|---|
@@ -217,11 +217,10 @@ manifest が実際に使用した日足の改訂を、取引日ごとに 1 件�
 | trading_date | TEXT | |
 | daily_bar_id | INTEGER FK → daily_bars | 使用した特定改訂 |
 
-主キー: `(manifest_id, trading_date)`。
-指標エンジンは、この一覧と件数・先頭日・末尾日・最低必要本数が一致しない入力を `InvalidData` として拒否する（[`technical-analysis.md`](./technical-analysis.md)）。
+主キー: `(manifest_id, trading_date)`。既存行は保持するが、新しい分析の入力整合性は manifest のhash・件数・先頭日・末尾日・最低必要本数で確認する（[`technical-analysis.md`](./technical-analysis.md)）。
 
 ### `analysis_input_manifest_corporate_actions`
-manifest が適用した企業アクションの改訂を列挙する。
+旧バージョンが manifest ごとに適用企業アクションを列挙した互換テーブル。新しい分析では書き込まない。
 
 | 列 | 型 | 説明 |
 |---|---|---|
