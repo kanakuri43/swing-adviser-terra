@@ -96,22 +96,8 @@ public sealed class RuntimeDailyUpdateServices : IDisposable
         public Task<DailyUpdateRunResult> RunAsync(IProgress<DailyUpdateStepProgress>? progress = null, CancellationToken cancellationToken = default)
         {
             var requestedAt = DateTime.UtcNow;
-            var request = new DailyUpdateRequest(MostRecentWeekdayInJst(requestedAt), requestedAt, Hash(UniverseDefinition));
+            var request = new DailyUpdateRequest(DailyUpdateEvaluationDateResolver.Resolve(requestedAt), requestedAt, Hash(UniverseDefinition));
             return orchestrator.RunAsync(request, progress, cancellationToken);
-        }
-
-        private static DateOnly MostRecentWeekdayInJst(DateTime utc)
-        {
-            var jst = TimeZoneInfo.ConvertTimeFromUtc(utc, JapanTimeZone());
-            var date = DateOnly.FromDateTime(jst.Date).AddDays(-1);
-            while (date.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) date = date.AddDays(-1);
-            return date;
-        }
-
-        private static TimeZoneInfo JapanTimeZone()
-        {
-            try { return TimeZoneInfo.FindSystemTimeZoneById("Tokyo Standard Time"); }
-            catch (TimeZoneNotFoundException) { return TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo"); }
         }
 
         private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();

@@ -19,6 +19,34 @@ namespace SwingAdviser.Infrastructure.Tests;
 public class RepresentativeWorkflowEndToEndTests
 {
     [Fact]
+    public async Task CandidateAnalyzedAfterEnteredExecution_RejectsTheOpeningWithoutPersistingPartialRiskData()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"swing-adviser-e2e-{Guid.NewGuid():N}.db");
+        var connectionString = $"Data Source={databasePath}";
+        try
+        {
+            await using (var migration = CreateContext(connectionString)) await migration.Database.MigrateAsync();
+            var ids = await SeedCandidateAsync(connectionString);
+            await using var context = CreateContext(connectionString);
+            var registration = new ManualTradeRegistrationService(new EfManualTradeRegistrationStore(context));
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => registration.RegisterOpenAsync(new ManualOpenTradeRequest(
+                ids.InstrumentId, "Long", new DateTimeOffset(2026, 8, 31, 9, 30, 0, TimeSpan.FromHours(9)), 100m, 100, "JPY", "candidate", "v1",
+                CandidateResultId: ids.CandidateResultId, UserConfirmed: true)));
+
+            Assert.Empty(await context.Positions.ToListAsync());
+            Assert.Empty(await context.TradeExecutions.ToListAsync());
+            Assert.Empty(await context.MarginLots.ToListAsync());
+            Assert.Empty(await context.RiskBasisSnapshots.ToListAsync());
+            Assert.Empty(await context.RiskPlans.ToListAsync());
+        }
+        finally
+        {
+            try { if (File.Exists(databasePath)) File.Delete(databasePath); } catch (IOException) { }
+        }
+    }
+
+    [Fact]
     public async Task CandidateAiManualOpenHoldingEvaluationAndManualClose_AreAuditedEndToEnd()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"swing-adviser-e2e-{Guid.NewGuid():N}.db");
@@ -48,40 +76,12 @@ public class RepresentativeWorkflowEndToEndTests
                     ids.InstrumentId, "Long", openedAt, 100m, 200, "JPY", "candidate", "v1",
                     CandidateResultId: ids.CandidateResultId, UserConfirmed: true));
                 var lot = await context.MarginLots.SingleAsync(item => item.MarginLotId == open.MarginLotIds.Single());
-
-                var basis = new RiskBasisSnapshot
-                {
-                    MarginLotId = lot.MarginLotId,
-                    EntryBasisPrice = 100m,
-                    Currency = "JPY",
-                    AtrBasis = 10m,
-                    AtrReferenceBarDate = new DateOnly(2026, 8, 31),
-                    AtrPeriod = 14,
-                    AtrAlgorithmVersion = "atr14-wilder-v1",
-                    PriceUnitBasisSha256 = new string('a', 64),
-                    SourceCandidateResultId = ids.CandidateResultId,
-                    SourceIndicatorResultId = ids.IndicatorResultId,
-                    StrategyParameterSnapshotId = ids.StrategyParameterSnapshotId,
-                    CorporateActionSetHash = new string('b', 64),
-                    ContentSha256 = new string('c', 64),
-                    CreatedAtUtc = DateTime.UtcNow,
-                };
-                context.RiskBasisSnapshots.Add(basis);
-                await context.SaveChangesAsync();
-                context.RiskPlans.Add(new RiskPlan
-                {
-                    MarginLotId = lot.MarginLotId,
-                    Revision = 1,
-                    PlanKind = "Initial",
-                    RiskBasisId = basis.RiskBasisId,
-                    StopPrice = 80m,
-                    TakeProfitPrice = 120m,
-                    PartialTakeProfitFraction = .5m,
-                    EffectiveAtUtc = openedAt.UtcDateTime,
-                    // A point-in-time re-evaluation must not see a plan recorded after its session.
-                    RecordedAtUtc = openedAt.UtcDateTime,
-                    Status = "Effective",
-                });
+                var basis = await context.RiskBasisSnapshots.SingleAsync(item => item.MarginLotId == lot.MarginLotId);
+                var initialPlan = await context.RiskPlans.SingleAsync(item => item.MarginLotId == lot.MarginLotId);
+                Assert.Equal(10m, basis.AtrBasis);
+                Assert.Equal(ids.CandidateResultId, basis.SourceCandidateResultId);
+                Assert.Equal(70m, initialPlan.StopPrice);
+                Assert.Equal(145m, initialPlan.TakeProfitPrice);
                 context.DailyBars.Add(new DailyBar
                 {
                     InstrumentId = ids.InstrumentId,
@@ -101,10 +101,13 @@ public class RepresentativeWorkflowEndToEndTests
                 var evaluationTime = new DateTime(2026, 9, 1, 7, 30, 0, DateTimeKind.Utc);
                 var reevaluation = await new HoldingReevaluationService(new EfHoldingReevaluationStore(context))
                     .ReevaluateAsync(new DateOnly(2026, 9, 1), evaluationTime);
-                Assert.Equal("Hold", Assert.Single(reevaluation.Positions).Outcome.Decision);
+                // The historical opening was entered after this evaluation session in the test, so
+                // the plan is correctly excluded rather than backdated into a past decision.
+                Assert.Null(Assert.Single(reevaluation.Positions).Outcome.Decision);
+                Assert.Equal("IntradaySequenceUnknown", reevaluation.Positions.Single().Outcome.EvaluationOutcome);
                 Assert.Equal("NotApplicable", reevaluation.Positions.Single().Outcome.PartialExitStatus);
                 Assert.Single(await context.PositionHoldingEvaluations.ToListAsync());
-                Assert.Single(await context.LotHoldingEvaluations.ToListAsync());
+                Assert.Empty(await context.LotHoldingEvaluations.ToListAsync());
 
                 // The user, not the evaluation, explicitly enters and confirms the close and its lot allocation.
                 await registration.RegisterCloseAsync(new ManualCloseTradeRequest(
@@ -144,7 +147,7 @@ public class RepresentativeWorkflowEndToEndTests
         var scan = new ScanRun { RunType = "Manual", UniverseDefinitionHash = "universe", StartedAtUtc = timestamp, Status = "Succeeded", TotalInstruments = 1, SucceededCount = 1, FailedCount = 0 };
         context.AddRange(manifest, strategy, scan);
         await context.SaveChangesAsync();
-        var indicator = new IndicatorResult { ScanRunId = scan.ScanRunId, InstrumentId = instrument.InstrumentId, EvaluationBarDate = new DateOnly(2026, 8, 31), AnalyzedAtUtc = timestamp, ManifestId = manifest.ManifestId, StrategyParameterSnapshotId = strategy.StrategyParameterSnapshotId, DataStatus = "Ok", HistoryAvailableCount = 250, HistoryRequiredCount = 201, VolumeRatioStatus = "Ok", RawValuesJson = "{}", CreatedAtUtc = timestamp };
+        var indicator = new IndicatorResult { ScanRunId = scan.ScanRunId, InstrumentId = instrument.InstrumentId, EvaluationBarDate = new DateOnly(2026, 8, 31), AnalyzedAtUtc = timestamp, ManifestId = manifest.ManifestId, StrategyParameterSnapshotId = strategy.StrategyParameterSnapshotId, DataStatus = "Ok", HistoryAvailableCount = 250, HistoryRequiredCount = 201, Atr14 = 10m, VolumeRatioStatus = "Ok", RawValuesJson = "{}", CreatedAtUtc = timestamp };
         context.IndicatorResults.Add(indicator);
         await context.SaveChangesAsync();
         context.ScanRunResultUses.Add(new ScanRunResultUse { ScanRunId = scan.ScanRunId, IndicatorResultId = indicator.IndicatorResultId, UseKind = "Computed", UsedAtUtc = timestamp });

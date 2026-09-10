@@ -1,4 +1,5 @@
 using SwingAdviser.Domain.Positions;
+using SwingAdviser.Domain.Risk;
 
 namespace SwingAdviser.Application.Positions;
 
@@ -34,6 +35,22 @@ public sealed record ManualCloseTradeRequest(
 
 public sealed record ManualTradeRegistrationResult(int PositionId, int TradeExecutionId, IReadOnlyList<int> MarginLotIds);
 
+/// <summary>Immutable ATR provenance for a candidate-originated opening risk plan.</summary>
+public sealed record CandidateRiskPlanSource(
+    int CandidateResultId,
+    int InstrumentId,
+    string Direction,
+    string SignalPurpose,
+    bool Matched,
+    int IndicatorResultId,
+    int IndicatorInstrumentId,
+    string IndicatorDataStatus,
+    decimal? Atr14,
+    DateOnly EvaluationBarDate,
+    DateTime AnalyzedAtUtc,
+    int StrategyParameterSnapshotId,
+    string CorporateActionSetHash);
+
 /// <summary>Repository boundary for the manual trade workflow. Implementations must persist one SaveChanges call atomically.</summary>
 public interface IManualTradeRegistrationStore
 {
@@ -41,7 +58,9 @@ public interface IManualTradeRegistrationStore
 
     Task<IReadOnlyList<MarginLot>> GetOpenLotsAsync(int positionId, CancellationToken cancellationToken);
 
-    void AddOpening(Position position, TradeExecution execution, MarginLot lot);
+    Task<CandidateRiskPlanSource?> GetCandidateRiskPlanSourceAsync(int candidateResultId, CancellationToken cancellationToken);
+
+    void AddOpening(Position position, TradeExecution execution, MarginLot lot, RiskBasisSnapshot? riskBasis = null, RiskPlan? riskPlan = null);
 
     void AddClose(TradeExecution execution, IReadOnlyCollection<TradeExecutionLotAllocation> allocations);
 

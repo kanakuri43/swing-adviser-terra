@@ -15,6 +15,7 @@ public sealed record ManualPositionOverview(
     decimal? StopCandidate = null,
     decimal? TakeProfitCandidate = null,
     DateOnly? EarliestRepaymentDate = null,
+    decimal? PriceProfitAndLoss = null,
     decimal? ConfirmedCost = null,
     decimal? ReferenceNetProfitAndLoss = null,
     DateOnly? LatestBarDate = null,

@@ -1,3 +1,7 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using SwingAdviser.Domain.Analysis;
 using SwingAdviser.Domain.Positions;
 using SwingAdviser.Domain.Risk;
 
@@ -17,6 +21,12 @@ public sealed class ManualTradeRegistrationService(IManualTradeRegistrationStore
             throw new ArgumentException("A valid instrument and Long/Short side are required.", nameof(request));
         if (string.IsNullOrWhiteSpace(request.AppliedStrategyKey) || string.IsNullOrWhiteSpace(request.AppliedStrategyVersion))
             throw new ArgumentException("The applied strategy key and version must be explicitly recorded.", nameof(request));
+
+        var candidateRiskSource = request.CandidateResultId is { } candidateResultId
+            ? await store.GetCandidateRiskPlanSourceAsync(candidateResultId, cancellationToken)
+                ?? throw new InvalidOperationException("The candidate's ATR basis is unavailable. Refresh analysis and select the candidate again.")
+            : null;
+        if (candidateRiskSource is not null) ValidateCandidateRiskSource(candidateRiskSource, request);
 
         Position position;
         if (request.ExistingPositionId is { } existingPositionId)
@@ -65,7 +75,20 @@ public sealed class ManualTradeRegistrationService(IManualTradeRegistrationStore
             Status = RiskVocabulary.Open,
         };
 
-        store.AddOpening(position, execution, lot);
+        RiskBasisSnapshot? riskBasis = null;
+        RiskPlan? riskPlan = null;
+        if (candidateRiskSource is not null)
+        {
+            var recordedAtUtc = enteredAtUtc;
+            riskBasis = CreateCandidateRiskBasis(candidateRiskSource, lot, execution, recordedAtUtc);
+            riskPlan = new InitialRiskPlanFactory().Create(
+                new InitialRiskPlanRequest(position, lot, execution, riskBasis, recordedAtUtc),
+                new RiskManagementParameters()).RiskPlan;
+            riskBasis.MarginLot = lot;
+            riskPlan.MarginLot = lot;
+        }
+
+        store.AddOpening(position, execution, lot, riskBasis, riskPlan);
         await store.SaveChangesAsync(cancellationToken);
         return new ManualTradeRegistrationResult(position.PositionId, execution.TradeExecutionId, new[] { lot.MarginLotId });
     }
@@ -145,4 +168,54 @@ public sealed class ManualTradeRegistrationService(IManualTradeRegistrationStore
 
     private static bool IsSide(string side) => side is RiskVocabulary.Long or RiskVocabulary.Short;
     private static string? NullIfWhiteSpace(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static void ValidateCandidateRiskSource(CandidateRiskPlanSource source, ManualOpenTradeRequest request)
+    {
+        if (source.InstrumentId != request.InstrumentId || source.IndicatorInstrumentId != source.InstrumentId || source.Direction != request.Side || source.SignalPurpose != "Entry" || !source.Matched || source.IndicatorDataStatus != "Ok" ||
+            source.IndicatorResultId <= 0 || source.Atr14 is null or <= 0 || source.EvaluationBarDate == default || source.AnalyzedAtUtc.Kind != DateTimeKind.Utc ||
+            source.StrategyParameterSnapshotId <= 0 || string.IsNullOrWhiteSpace(source.CorporateActionSetHash))
+            throw new InvalidOperationException("The selected candidate does not contain a complete, matching ATR risk basis.");
+        if (source.AnalyzedAtUtc > request.ExecutedAt.UtcDateTime)
+            throw new InvalidOperationException("A candidate analyzed after the entered execution time cannot be used as its ATR basis.");
+    }
+
+    private static RiskBasisSnapshot CreateCandidateRiskBasis(CandidateRiskPlanSource source, MarginLot lot, TradeExecution execution, DateTime recordedAtUtc)
+    {
+        var priceUnitBasis = Hash(new { schemaVersion = "price-unit-basis-v1", source.InstrumentId, execution.Currency, source.CorporateActionSetHash });
+        var content = Hash(new
+        {
+            schemaVersion = "risk-basis-v1",
+            source.CandidateResultId,
+            source.IndicatorResultId,
+            source.InstrumentId,
+            execution.Price,
+            execution.Currency,
+            atrBasis = source.Atr14,
+            source.EvaluationBarDate,
+            atrPeriod = new TechnicalStrategyParameters().AtrPeriod,
+            atrAlgorithm = "atr-wilder-v1",
+            priceUnitBasis,
+            source.StrategyParameterSnapshotId,
+            source.CorporateActionSetHash,
+        });
+        return new RiskBasisSnapshot
+        {
+            MarginLotId = lot.MarginLotId,
+            EntryBasisPrice = execution.Price,
+            Currency = execution.Currency,
+            AtrBasis = source.Atr14!.Value,
+            AtrReferenceBarDate = source.EvaluationBarDate,
+            AtrPeriod = new TechnicalStrategyParameters().AtrPeriod,
+            AtrAlgorithmVersion = "atr-wilder-v1",
+            PriceUnitBasisSha256 = priceUnitBasis,
+            SourceCandidateResultId = source.CandidateResultId,
+            SourceIndicatorResultId = source.IndicatorResultId,
+            StrategyParameterSnapshotId = source.StrategyParameterSnapshotId,
+            CorporateActionSetHash = source.CorporateActionSetHash,
+            ContentSha256 = content,
+            CreatedAtUtc = recordedAtUtc,
+        };
+    }
+
+    private static string Hash<T>(T value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)))).ToLowerInvariant();
 }

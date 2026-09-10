@@ -47,13 +47,18 @@ public sealed class EfManualPositionOverviewReader(SwingAdviserDbContext context
             var bar = bars.Where(item => item.InstrumentId == position.InstrumentId)
                 .GroupBy(item => item.TradingDate).Select(group => group.OrderByDescending(item => item.Revision).First())
                 .OrderByDescending(item => item.TradingDate).FirstOrDefault();
-            var referencePnl = bar is null || lotIds.Any(applied.Contains)
+            // Price P&L remains useful even when the carrying-cost ledger is not complete. Only
+            // net reference P&L is fail-closed in that situation; missing costs are never zero.
+            decimal? pricePnl = bar is null || lotIds.Any(applied.Contains)
                 ? null
-                : position.MarginLots.Where(lot => lot.Status == "Open").Sum(lot => (position.Side == "Long" ? bar.Close - lot.OpeningTradeExecution.Price : lot.OpeningTradeExecution.Price - bar.Close) * lot.CurrentQuantity) - resolution.NetCost;
+                : position.MarginLots.Where(lot => lot.Status == "Open").Sum(lot => (position.Side == "Long" ? bar.Close - lot.OpeningTradeExecution.Price : lot.OpeningTradeExecution.Price - bar.Close) * lot.CurrentQuantity);
+            decimal? referencePnl = pricePnl is null || !resolution.IsResolved
+                ? null
+                : pricePnl.Value - resolution.NetCost!.Value;
             return new ManualPositionOverview(position.PositionId, identity.Item1, identity.Item2, position.Side, position.MarginLots.Where(lot => lot.Status == "Open").Sum(lot => lot.CurrentQuantity), $"{position.AppliedStrategyKey} / {position.AppliedStrategyVersion}", reconciliation,
                 evaluation?.AggregatedDecision, evaluation?.EvaluationBarDate, evaluation?.EvaluationOutcome,
                 activePlans.Length == 1 ? activePlans[0].StopPrice : null, activePlans.Length == 1 ? activePlans[0].TakeProfitPrice : null,
-                activeTerms.Where(term => term.FinalRepaymentDate.HasValue).Select(term => term.FinalRepaymentDate).Min(),
+                activeTerms.Where(term => term.FinalRepaymentDate.HasValue).Select(term => term.FinalRepaymentDate).Min(), pricePnl,
                 resolution.HasCompleteConfirmedCost ? resolution.ConfirmedNetCost : null, referencePnl,
                 bar?.TradingDate, bar?.Close);
         }).ToArray();

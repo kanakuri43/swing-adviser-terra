@@ -168,11 +168,6 @@ public partial class MainWindow
         await QueueAiChecksAsync([candidate]);
     }
 
-    private async void QueueSelectedCandidateAiChecks(object sender, System.Windows.RoutedEventArgs e)
-    {
-        await QueueAiChecksAsync(CandidateGrid.SelectedItems.OfType<ViewModels.CandidateRow>());
-    }
-
     private async void CancelOrRetryAiCheck(object sender, System.Windows.RoutedEventArgs e)
     {
         if ((sender as System.Windows.FrameworkElement)?.DataContext is not ViewModels.CandidateRow { LatestAiAttemptId: int attemptId } candidate) return;

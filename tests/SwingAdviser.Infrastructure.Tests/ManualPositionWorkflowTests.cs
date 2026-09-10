@@ -69,6 +69,37 @@ public class ManualPositionWorkflowTests
     }
 
     [Fact]
+    public async Task OpenPositionOverview_ShowsPriceProfitLossWhenCostLedgerIsMissing()
+    {
+        using var connection = OpenMigratedConnection();
+        await using var context = CreateContext(connection);
+        var instrument = await AddInstrumentAsync(context);
+        var service = new ManualTradeRegistrationService(new EfManualTradeRegistrationStore(context));
+        var executedAt = new DateTimeOffset(2026, 8, 31, 10, 15, 0, TimeSpan.FromHours(9));
+        await service.RegisterOpenAsync(new ManualOpenTradeRequest(instrument.InstrumentId, "Long", executedAt, 100m, 200, "JPY", "manual-v1", "v1", UserConfirmed: true));
+        context.DailyBars.Add(new DailyBar
+        {
+            InstrumentId = instrument.InstrumentId,
+            TradingDate = new DateOnly(2026, 9, 1),
+            Open = 114m,
+            High = 116m,
+            Low = 113m,
+            Close = 115m,
+            Volume = 1_000,
+            Source = "Test",
+            FetchedAtUtc = new DateTime(2026, 9, 1, 7, 0, 0, DateTimeKind.Utc),
+            Revision = 1,
+            Status = "Final",
+        });
+        await context.SaveChangesAsync();
+
+        var overview = Assert.Single(await new EfManualPositionOverviewReader(context).GetOpenPositionsAsync());
+
+        Assert.Equal(3_000m, overview.PriceProfitAndLoss);
+        Assert.Null(overview.ReferenceNetProfitAndLoss);
+    }
+
+    [Fact]
     public async Task SplitCreatesSeparateAdjustmentAndPreservesOriginalExecution()
     {
         using var connection = OpenMigratedConnection();

@@ -43,12 +43,14 @@ public sealed class MainWindowViewModel : ObservableObject
         foreach (var position in positions)
         {
             var evaluated = position.EvaluationDecision is not null;
-            var evaluationDetail = evaluated ? $"{position.EvaluationOutcome ?? "評価済み"}。保存済みの保有再評価結果です。" : "日次更新後に保有再評価を表示します。";
+            var evaluationDetail = evaluated
+                ? $"{position.EvaluationOutcome ?? "評価済み"}。保存済みの保有再評価結果です。"
+                : EvaluationUnavailableReason(position.EvaluationOutcome);
             if (position.LatestClose is not null) evaluationDetail += $" 最新確定終値: {position.LatestClose:n4}円（{position.LatestBarDate:yyyy-MM-dd}）。";
             Positions.Add(new PositionRow(position.Code, position.Name, position.Side, $"{position.CurrentQuantity:n0}株", position.Strategy,
                 position.EvaluationDecision ?? "未評価", position.EvaluationBarDate?.ToString("yyyy-MM-dd") ?? "未評価", evaluationDetail,
-                Amount(position.StopCandidate), Amount(position.TakeProfitCandidate), position.EvaluationDecision == "Hold" ? evaluationDetail : "HOLD理由なし/未評価",
-                position.EarliestRepaymentDate?.ToString("yyyy-MM-dd") ?? "期限未確認", Amount(position.ConfirmedCost), "未算定", "未算定", Amount(position.ReferenceNetProfitAndLoss), position.ReconciliationStatus, position.PositionId, Amount(position.LatestClose)));
+                Amount(position.StopCandidate), Amount(position.TakeProfitCandidate), position.EvaluationDecision == "Hold" ? evaluationDetail : "HOLD対象外/未評価",
+                position.EarliestRepaymentDate?.ToString("yyyy-MM-dd") ?? "期限未確認", Amount(position.ConfirmedCost), "未算定", Amount(position.PriceProfitAndLoss), Amount(position.ReferenceNetProfitAndLoss), position.ReconciliationStatus, position.PositionId, Amount(position.LatestClose)));
         }
         Executions.Clear();
         foreach (var execution in executions)
@@ -190,10 +192,26 @@ public sealed class MainWindowViewModel : ObservableObject
     private static string FormatOpenPositionProfitAndLoss(IReadOnlyList<SwingAdviser.Application.Positions.ManualPositionOverview> positions)
     {
         if (positions.Count == 0) return "保有建玉の現在損益: なし";
-        if (positions.Any(position => position.ReferenceNetProfitAndLoss is null)) return "保有建玉の現在損益: 未算定";
-        var total = positions.Sum(position => position.ReferenceNetProfitAndLoss!.Value);
-        return $"保有建玉の現在損益: {total:+#,0;-#,0;0}円";
+        if (positions.Any(position => position.PriceProfitAndLoss is null)) return "保有建玉の価格損益: 一部未算定 / ネット参考損益: 未算定";
+        var priceTotal = positions.Sum(position => position.PriceProfitAndLoss!.Value);
+        if (positions.Any(position => position.ReferenceNetProfitAndLoss is null))
+            return $"保有建玉の価格損益: {priceTotal:+#,0;-#,0;0}円 / ネット参考損益: 未算定";
+        var netTotal = positions.Sum(position => position.ReferenceNetProfitAndLoss!.Value);
+        return $"保有建玉の価格損益: {priceTotal:+#,0;-#,0;0}円 / ネット参考損益: {netTotal:+#,0;-#,0;0}円";
     }
+
+    private static string EvaluationUnavailableReason(string? outcome) => outcome switch
+    {
+        "IncompletePositionData" => "未評価: 建玉時ATR（リスク基準）または損切・利確プランが未登録です。",
+        "ReconciliationRequired" => "未評価: 企業アクションの照合が必要です。",
+        "InsufficientHistory" => "未評価: 保有再評価に必要な日足履歴が不足しています。",
+        "HistoryIncomplete" => "未評価: 建玉後の日足履歴に欠損があります。",
+        "PointInTimeUnverified" => "未評価: 時点整合性を確認できないデータが含まれます。",
+        "IntradaySequenceUnknown" => "未評価: 建玉・プランの有効時刻と当日足の前後関係を判定できません。",
+        "InvalidData" => "未評価: 保有再評価に必要なデータが不正です。",
+        "Failed" => "未評価: 保有再評価でエラーが発生しました。",
+        _ => "未評価: 日次更新後の保有再評価結果がありません。",
+    };
 
     private static string BuildPrimaryReason(SwingAdviser.Application.Analysis.AiCandidateOverview candidate)
     {
